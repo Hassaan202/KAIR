@@ -9,7 +9,18 @@ class ModelBase():
     def __init__(self, opt):
         self.opt = opt                         # opt
         self.save_dir = opt['path']['models']  # save models
-        self.device = torch.device('cuda' if opt['gpu_ids'] is not None else 'cpu')
+
+        # Device selection with fallback: CUDA -> MPS -> CPU
+        if opt['gpu_ids'] is not None and torch.cuda.is_available():
+            self.device = torch.device('cuda')
+            print(f'Using device: CUDA (GPU: {torch.cuda.get_device_name(0)})')
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            self.device = torch.device('mps')
+            print('Using device: MPS (Apple Silicon GPU)')
+        else:
+            self.device = torch.device('cpu')
+            print('Using device: CPU')
+
         self.is_train = opt['is_train']        # training or not
         self.schedulers = []                   # schedulers
 
@@ -104,7 +115,14 @@ class ModelBase():
         if self.opt['dist']:
             find_unused_parameters = self.opt.get('find_unused_parameters', True)
             use_static_graph = self.opt.get('use_static_graph', False)
-            network = DistributedDataParallel(network, device_ids=[torch.cuda.current_device()], find_unused_parameters=find_unused_parameters)
+
+            # Use appropriate device_ids based on device type
+            if self.device.type == 'cuda':
+                network = DistributedDataParallel(network, device_ids=[torch.cuda.current_device()], find_unused_parameters=find_unused_parameters)
+            else:
+                # For MPS and CPU, don't specify device_ids
+                network = DistributedDataParallel(network, find_unused_parameters=find_unused_parameters)
+
             if use_static_graph:
                 print('Using static graph. Make sure that "unused parameters" will not change during training loop.')
                 network._set_static_graph()
@@ -187,7 +205,11 @@ class ModelBase():
     # load the state_dict of the optimizer
     # ----------------------------------------
     def load_optimizer(self, load_path, optimizer):
-        optimizer.load_state_dict(torch.load(load_path, map_location=lambda storage, loc: storage.cuda(torch.cuda.current_device())))
+        if self.device.type == 'cuda':
+            optimizer.load_state_dict(torch.load(load_path, map_location=lambda storage, loc: storage.cuda(torch.cuda.current_device())))
+        else:
+            # For MPS and CPU, load to the current device
+            optimizer.load_state_dict(torch.load(load_path, map_location=self.device))
 
     def update_E(self, decay=0.999):
         netG = self.get_bare_model(self.netG)
