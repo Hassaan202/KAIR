@@ -54,7 +54,14 @@ def main():
     test_results['psnr_y'] = []
     test_results['ssim_y'] = []
     test_results['psnr_b'] = []
+    test_results['it_ssim'] = []
+    test_results['sam'] = []
+    test_results['uiqi'] = []
+    test_results['rmse'] = []
+    test_results['fsim'] = []
+    test_results['srer'] = []
     psnr, ssim, psnr_y, ssim_y, psnr_b = 0, 0, 0, 0, 0
+    it_ssim, sam, uiqi, rmse, fsim, srer = 0, 0, 0, 0, 0, 0
 
     for idx, path in enumerate(sorted(glob.glob(os.path.join(folder, '*')))):
         # read image
@@ -88,8 +95,20 @@ def main():
 
             psnr = util.calculate_psnr(output, img_gt, border=border)
             ssim = util.calculate_ssim(output, img_gt, border=border)
+            it_ssim = util.calculate_it_ssim(output, img_gt, border=border)
+            sam = util.calculate_sam(output, img_gt, border=border)
+            uiqi = util.calculate_uiqi(output, img_gt, border=border)
+            rmse = util.calculate_rmse(output, img_gt, border=border)
+            fsim = util.calculate_fsim(output, img_gt, border=border)
+            srer = util.calculate_srer(output, img_gt, border=border)
             test_results['psnr'].append(psnr)
             test_results['ssim'].append(ssim)
+            test_results['it_ssim'].append(it_ssim)
+            test_results['sam'].append(sam)
+            test_results['uiqi'].append(uiqi)
+            test_results['rmse'].append(rmse)
+            test_results['fsim'].append(fsim)
+            test_results['srer'].append(srer)
             if img_gt.ndim == 3:  # RGB image
                 output_y = util.bgr2ycbcr(output.astype(np.float32) / 255.) * 255.
                 img_gt_y = util.bgr2ycbcr(img_gt.astype(np.float32) / 255.) * 255.
@@ -100,10 +119,10 @@ def main():
             if args.task in ['jpeg_car']:
                 psnr_b = util.calculate_psnrb(output, img_gt, border=border)
                 test_results['psnr_b'].append(psnr_b)
-            print('Testing {:d} {:20s} - PSNR: {:.2f} dB; SSIM: {:.4f}; '
+            print('Testing {:d} {:20s} - PSNR: {:.2f} dB; SSIM: {:.4f}; IT-SSIM: {:.4f}; '
                   'PSNR_Y: {:.2f} dB; SSIM_Y: {:.4f}; '
                   'PSNR_B: {:.2f} dB.'.
-                  format(idx, imgname, psnr, ssim, psnr_y, ssim_y, psnr_b))
+                  format(idx, imgname, psnr, ssim, it_ssim, psnr_y, ssim_y, psnr_b))
         else:
             print('Testing {:d} {:20s}'.format(idx, imgname))
 
@@ -111,7 +130,16 @@ def main():
     if img_gt is not None:
         ave_psnr = sum(test_results['psnr']) / len(test_results['psnr'])
         ave_ssim = sum(test_results['ssim']) / len(test_results['ssim'])
+        ave_it_ssim = sum(test_results['it_ssim']) / len(test_results['it_ssim'])
+        ave_sam = sum(test_results['sam']) / len(test_results['sam'])
+        ave_uiqi = sum(test_results['uiqi']) / len(test_results['uiqi'])
+        ave_rmse = sum(test_results['rmse']) / len(test_results['rmse'])
+        ave_fsim = sum(test_results['fsim']) / len(test_results['fsim'])
+        ave_srer = sum(test_results['srer']) / len(test_results['srer'])
         print('\n{} \n-- Average PSNR/SSIM(RGB): {:.2f} dB; {:.4f}'.format(save_dir, ave_psnr, ave_ssim))
+        print('-- Average IT-SSIM: {:.4f}'.format(ave_it_ssim))
+        print('-- Average SAM: {:.4f} | UIQI: {:.4f} | RMSE: {:.4f}'.format(ave_sam, ave_uiqi, ave_rmse))
+        print('-- Average FSIM: {:.4f} | SRER: {:.2f} dB'.format(ave_fsim, ave_srer))
         if img_gt.ndim == 3:
             ave_psnr_y = sum(test_results['psnr_y']) / len(test_results['psnr_y'])
             ave_ssim_y = sum(test_results['ssim_y']) / len(test_results['ssim_y'])

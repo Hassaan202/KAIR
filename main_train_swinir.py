@@ -220,6 +220,13 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
             if current_step % opt['train']['checkpoint_test'] == 0 and opt['rank'] == 0:
 
                 avg_psnr = 0.0
+                avg_ssim = 0.0
+                avg_it_ssim = 0.0
+                avg_sam = 0.0
+                avg_uiqi = 0.0
+                avg_rmse = 0.0
+                avg_fsim = 0.0
+                avg_srer = 0.0
                 idx = 0
 
                 for test_data in test_loader:
@@ -244,18 +251,43 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
                     util.imsave(E_img, save_img_path)
 
                     # -----------------------
-                    # calculate PSNR
+                    # calculate all metrics
                     # -----------------------
                     current_psnr = util.calculate_psnr(E_img, H_img, border=border)
+                    current_ssim = util.calculate_ssim(E_img, H_img, border=border)
+                    current_it_ssim = util.calculate_it_ssim(E_img, H_img, border=border)
+                    current_sam = util.calculate_sam(E_img, H_img, border=border)
+                    current_uiqi = util.calculate_uiqi(E_img, H_img, border=border)
+                    current_rmse = util.calculate_rmse(E_img, H_img, border=border)
+                    current_fsim = util.calculate_fsim(E_img, H_img, border=border)
+                    current_srer = util.calculate_srer(E_img, H_img, border=border)
 
-                    logger.info('{:->4d}--> {:>10s} | {:<4.2f}dB'.format(idx, image_name_ext, current_psnr))
+                    logger.info('{:->4d}--> {:>10s} | PSNR: {:<4.2f}dB | SSIM: {:<.4f} | IT-SSIM: {:<.4f}'.format(
+                        idx, image_name_ext, current_psnr, current_ssim, current_it_ssim))
 
                     avg_psnr += current_psnr
+                    avg_ssim += current_ssim
+                    avg_it_ssim += current_it_ssim
+                    avg_sam += current_sam
+                    avg_uiqi += current_uiqi
+                    avg_rmse += current_rmse
+                    avg_fsim += current_fsim
+                    avg_srer += current_srer
 
                 avg_psnr = avg_psnr / idx
+                avg_ssim = avg_ssim / idx
+                avg_it_ssim = avg_it_ssim / idx
+                avg_sam = avg_sam / idx
+                avg_uiqi = avg_uiqi / idx
+                avg_rmse = avg_rmse / idx
+                avg_fsim = avg_fsim / idx
+                avg_srer = avg_srer / idx
 
                 # testing log
-                logger.info('<epoch:{:3d}, iter:{:8,d}, Average PSNR : {:<.2f}dB\n'.format(epoch, current_step, avg_psnr))
+                logger.info('<epoch:{:3d}, iter:{:8,d}>'.format(epoch, current_step))
+                logger.info('  Average PSNR: {:<.2f}dB | SSIM: {:<.4f} | IT-SSIM: {:<.4f}'.format(avg_psnr, avg_ssim, avg_it_ssim))
+                logger.info('  SAM: {:<.4f} | UIQI: {:<.4f} | RMSE: {:<.4f}'.format(avg_sam, avg_uiqi, avg_rmse))
+                logger.info('  FSIM: {:<.4f} | SRER: {:<.2f}dB\n'.format(avg_fsim, avg_srer))
 
 if __name__ == '__main__':
     main()

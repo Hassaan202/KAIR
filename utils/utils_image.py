@@ -694,6 +694,208 @@ def ssim(img1, img2):
     return ssim_map.mean()
 
 
+# --------------------------------------------
+# IT-SSIM (Information Theoretic SSIM)
+# --------------------------------------------
+def calculate_it_ssim(img1, img2, border=0):
+    '''calculate IT-SSIM (Information Theoretic SSIM)
+    Enhanced version of SSIM with information theoretic components
+    img1, img2: [0, 255]
+    '''
+    if not img1.shape == img2.shape:
+        raise ValueError('Input images must have the same dimensions.')
+    h, w = img1.shape[:2]
+    img1 = img1[border:h-border, border:w-border]
+    img2 = img2[border:h-border, border:w-border]
+
+    img1 = img1.astype(np.float64)
+    img2 = img2.astype(np.float64)
+
+    C1 = (0.01 * 255) ** 2
+    C2 = (0.03 * 255) ** 2
+
+    kernel = cv2.getGaussianKernel(11, 1.5)
+    window = np.outer(kernel, kernel.transpose())
+
+    if img1.ndim == 2:
+        return _it_ssim_single(img1, img2, window, C1, C2)
+    elif img1.ndim == 3:
+        if img1.shape[2] == 3:
+            it_ssims = []
+            for i in range(3):
+                it_ssims.append(_it_ssim_single(img1[:,:,i], img2[:,:,i], window, C1, C2))
+            return np.array(it_ssims).mean()
+        elif img1.shape[2] == 1:
+            return _it_ssim_single(np.squeeze(img1), np.squeeze(img2), window, C1, C2)
+    else:
+        raise ValueError('Wrong input image dimensions.')
+
+
+def _it_ssim_single(img1, img2, window, C1, C2):
+    '''IT-SSIM for single channel'''
+    mu1 = cv2.filter2D(img1, -1, window)[5:-5, 5:-5]
+    mu2 = cv2.filter2D(img2, -1, window)[5:-5, 5:-5]
+    mu1_sq = mu1 ** 2
+    mu2_sq = mu2 ** 2
+    mu1_mu2 = mu1 * mu2
+
+    sigma1_sq = cv2.filter2D(img1 ** 2, -1, window)[5:-5, 5:-5] - mu1_sq
+    sigma2_sq = cv2.filter2D(img2 ** 2, -1, window)[5:-5, 5:-5] - mu2_sq
+    sigma12 = cv2.filter2D(img1 * img2, -1, window)[5:-5, 5:-5] - mu1_mu2
+
+    # Clamp to prevent negative values
+    sigma1_sq = np.maximum(sigma1_sq, 0)
+    sigma2_sq = np.maximum(sigma2_sq, 0)
+
+    # IT-SSIM components
+    luminance = (2 * mu1_mu2 + C1) / (mu1_sq + mu2_sq + C1)
+    contrast = (2 * np.sqrt(sigma1_sq + 1e-10) * np.sqrt(sigma2_sq + 1e-10) + C2) / (sigma1_sq + sigma2_sq + C2)
+    structure = (sigma12 + C2/2) / (np.sqrt(sigma1_sq + 1e-10) * np.sqrt(sigma2_sq + 1e-10) + C2/2)
+
+    it_ssim_map = luminance * contrast * structure
+    return it_ssim_map.mean()
+
+
+# --------------------------------------------
+# SAM (Spectral Angle Mapper)
+# --------------------------------------------
+def calculate_sam(img1, img2, border=0):
+    '''calculate SAM (Spectral Angle Mapper)
+    img1, img2: [0, 255]
+    '''
+    if not img1.shape == img2.shape:
+        raise ValueError('Input images must have the same dimensions.')
+    h, w = img1.shape[:2]
+    img1 = img1[border:h-border, border:w-border]
+    img2 = img2[border:h-border, border:w-border]
+
+    img1 = img1.astype(np.float64)
+    img2 = img2.astype(np.float64)
+
+    if img1.ndim == 2:
+        img1 = np.expand_dims(img1, axis=2)
+        img2 = np.expand_dims(img2, axis=2)
+
+    img1_flat = img1.reshape(-1, img1.shape[-1])
+    img2_flat = img2.reshape(-1, img2.shape[-1])
+
+    num = np.sum(img1_flat * img2_flat, axis=1)
+    den = np.linalg.norm(img1_flat, axis=1) * np.linalg.norm(img2_flat, axis=1)
+
+    sam = np.arccos(np.clip(num / (den + 1e-8), -1, 1))
+    return np.mean(sam)
+
+
+# --------------------------------------------
+# UIQI (Universal Image Quality Index)
+# --------------------------------------------
+def calculate_uiqi(img1, img2, border=0):
+    '''calculate UIQI (Universal Image Quality Index)
+    img1, img2: [0, 255]
+    '''
+    if not img1.shape == img2.shape:
+        raise ValueError('Input images must have the same dimensions.')
+    h, w = img1.shape[:2]
+    img1 = img1[border:h-border, border:w-border]
+    img2 = img2[border:h-border, border:w-border]
+
+    img1 = img1.astype(np.float64)
+    img2 = img2.astype(np.float64)
+
+    mu1 = np.mean(img1)
+    mu2 = np.mean(img2)
+    sigma1_sq = np.var(img1)
+    sigma2_sq = np.var(img2)
+    sigma12 = np.mean((img1 - mu1) * (img2 - mu2))
+
+    uiqi = (4 * sigma12 * mu1 * mu2) / ((sigma1_sq + sigma2_sq) * (mu1**2 + mu2**2) + 1e-8)
+    return uiqi
+
+
+# --------------------------------------------
+# RMSE (Root Mean Square Error)
+# --------------------------------------------
+def calculate_rmse(img1, img2, border=0):
+    '''calculate RMSE (Root Mean Square Error)
+    img1, img2: [0, 255]
+    '''
+    if not img1.shape == img2.shape:
+        raise ValueError('Input images must have the same dimensions.')
+    h, w = img1.shape[:2]
+    img1 = img1[border:h-border, border:w-border]
+    img2 = img2[border:h-border, border:w-border]
+
+    img1 = img1.astype(np.float64)
+    img2 = img2.astype(np.float64)
+    mse = np.mean((img1 - img2) ** 2)
+    return np.sqrt(mse)
+
+
+# --------------------------------------------
+# FSIM (Feature Similarity Index)
+# --------------------------------------------
+def calculate_fsim(img1, img2, border=0):
+    '''calculate FSIM (Feature Similarity Index)
+    img1, img2: [0, 255]
+    '''
+    from scipy.ndimage import convolve
+
+    if not img1.shape == img2.shape:
+        raise ValueError('Input images must have the same dimensions.')
+    h, w = img1.shape[:2]
+    img1 = img1[border:h-border, border:w-border]
+    img2 = img2[border:h-border, border:w-border]
+
+    img1 = img1.astype(np.float64)
+    img2 = img2.astype(np.float64)
+
+    # Convert to grayscale
+    if len(img1.shape) == 3:
+        img1_gray = np.mean(img1, axis=2)
+        img2_gray = np.mean(img2, axis=2)
+    else:
+        img1_gray = img1
+        img2_gray = img2
+
+    # Gradient-based similarity
+    sobel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
+    sobel_y = sobel_x.T
+
+    grad1_x = convolve(img1_gray, sobel_x)
+    grad1_y = convolve(img1_gray, sobel_y)
+    grad2_x = convolve(img2_gray, sobel_x)
+    grad2_y = convolve(img2_gray, sobel_y)
+
+    mag1 = np.sqrt(grad1_x**2 + grad1_y**2)
+    mag2 = np.sqrt(grad2_x**2 + grad2_y**2)
+
+    similarity = (2 * mag1 * mag2 + 1e-8) / (mag1**2 + mag2**2 + 1e-8)
+    return np.mean(similarity)
+
+
+# --------------------------------------------
+# SRER (Signal to Reconstruction Error Ratio)
+# --------------------------------------------
+def calculate_srer(img1, img2, border=0):
+    '''calculate SRER (Signal to Reconstruction Error Ratio)
+    img1, img2: [0, 255]
+    Returns value in dB
+    '''
+    if not img1.shape == img2.shape:
+        raise ValueError('Input images must have the same dimensions.')
+    h, w = img1.shape[:2]
+    img1 = img1[border:h-border, border:w-border]
+    img2 = img2[border:h-border, border:w-border]
+
+    img1 = img1.astype(np.float64)
+    img2 = img2.astype(np.float64)
+
+    signal_power = np.mean(img1 ** 2)
+    error_power = np.mean((img1 - img2) ** 2)
+    srer = 10 * np.log10(signal_power / (error_power + 1e-8))
+    return srer
+
+
 def _blocking_effect_factor(im):
     block_size = 8
 
