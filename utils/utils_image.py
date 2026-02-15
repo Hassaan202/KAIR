@@ -9,6 +9,8 @@ from datetime import datetime
 # import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from scipy.ndimage import convolve
+from piq import fsim
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
@@ -615,10 +617,9 @@ def channel_convert(in_c, tar_type, img_list):
 
 '''
 # --------------------------------------------
-# metric, PSNR, SSIM and PSNRB
+# metrics
 # --------------------------------------------
 '''
-
 
 # --------------------------------------------
 # PSNR
@@ -627,6 +628,7 @@ def calculate_psnr(img1, img2, border=0):
     # img1 and img2 have range [0, 255]
     #img1 = img1.squeeze()
     #img2 = img2.squeeze()
+    # formulae equivalent to 10log(M^2/MSE)
     if not img1.shape == img2.shape:
         raise ValueError('Input images must have the same dimensions.')
     h, w = img1.shape[:2]
@@ -658,12 +660,13 @@ def calculate_ssim(img1, img2, border=0):
     img2 = img2[border:h-border, border:w-border]
 
     if img1.ndim == 2:
-        return ssim(img1, img2)
+        return ssim(img1, img2) # direct calculation for single channel image
     elif img1.ndim == 3:
         if img1.shape[2] == 3:
             ssims = []
             for i in range(3):
-                ssims.append(ssim(img1[:,:,i], img2[:,:,i]))
+                ssims.append(ssim(img1[:,:,i], img2[:,:,i]))    # for 3 channel image, calculates the ssim for each
+                # channel separately and takes the mean
             return np.array(ssims).mean()
         elif img1.shape[2] == 1:
             return ssim(np.squeeze(img1), np.squeeze(img2))
@@ -783,7 +786,7 @@ def calculate_sam(img1, img2, border=0):
     den = np.linalg.norm(img1_flat, axis=1) * np.linalg.norm(img2_flat, axis=1)
 
     sam = np.arccos(np.clip(num / (den + 1e-8), -1, 1))
-    return np.mean(sam)
+    return np.mean(np.degrees(sam))
 
 
 # --------------------------------------------
@@ -835,42 +838,27 @@ def calculate_rmse(img1, img2, border=0):
 # FSIM (Feature Similarity Index)
 # --------------------------------------------
 def calculate_fsim(img1, img2, border=0):
-    '''calculate FSIM (Feature Similarity Index)
-    img1, img2: [0, 255]
     '''
-    from scipy.ndimage import convolve
-
+    calculate FSIM using the piq library for high accuracy.
+    img1, img2: [0, 255] NumPy arrays
+    '''
     if not img1.shape == img2.shape:
         raise ValueError('Input images must have the same dimensions.')
+
+    # 1. Apply border cropping (same as your other functions)
     h, w = img1.shape[:2]
-    img1 = img1[border:h-border, border:w-border]
-    img2 = img2[border:h-border, border:w-border]
+    img1 = img1[border:h - border, border:w - border]
+    img2 = img2[border:h - border, border:w - border]
 
-    img1 = img1.astype(np.float64)
-    img2 = img2.astype(np.float64)
+    # 2. Convert NumPy [H, W, C] to PyTorch [Batch, Channel, Height, Width]
+    # We add a batch dimension [1, ...] and move channel to the front
+    t1 = torch.from_numpy(img1).permute(2, 0, 1).unsqueeze(0).float()
+    t2 = torch.from_numpy(img2).permute(2, 0, 1).unsqueeze(0).float()
 
-    # Convert to grayscale
-    if len(img1.shape) == 3:
-        img1_gray = np.mean(img1, axis=2)
-        img2_gray = np.mean(img2, axis=2)
-    else:
-        img1_gray = img1
-        img2_gray = img2
+    # 3. Calculate FSIM
+    score = fsim(t1, t2, data_range=255.0, chromatic=True)
 
-    # Gradient-based similarity
-    sobel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
-    sobel_y = sobel_x.T
-
-    grad1_x = convolve(img1_gray, sobel_x)
-    grad1_y = convolve(img1_gray, sobel_y)
-    grad2_x = convolve(img2_gray, sobel_x)
-    grad2_y = convolve(img2_gray, sobel_y)
-
-    mag1 = np.sqrt(grad1_x**2 + grad1_y**2)
-    mag2 = np.sqrt(grad2_x**2 + grad2_y**2)
-
-    similarity = (2 * mag1 * mag2 + 1e-8) / (mag1**2 + mag2**2 + 1e-8)
-    return np.mean(similarity)
+    return score.item()
 
 
 # --------------------------------------------
