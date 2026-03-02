@@ -9,7 +9,7 @@ import random
 from scipy import ndimage
 import scipy
 import scipy.stats as ss
-from scipy.interpolate import interp2d
+from scipy.interpolate import RegularGridInterpolator
 from scipy.linalg import orth
 
 
@@ -116,11 +116,16 @@ def shift_pixel(x, sf, upper_left=True):
     x1 = np.clip(x1, 0, w-1)
     y1 = np.clip(y1, 0, h-1)
 
+    xx1, yy1 = np.meshgrid(x1, y1)
+    pts = np.stack([yy1.ravel(), xx1.ravel()], axis=-1)
+
     if x.ndim == 2:
-        x = interp2d(xv, yv, x)(x1, y1)
+        interp = RegularGridInterpolator((yv, xv), x, method='linear', bounds_error=False, fill_value=None)
+        x = interp(pts).reshape(h, w)
     if x.ndim == 3:
         for i in range(x.shape[-1]):
-            x[:, :, i] = interp2d(xv, yv, x[:, :, i])(x1, y1)
+            interp = RegularGridInterpolator((yv, xv), x[:, :, i], method='linear', bounds_error=False, fill_value=None)
+            x[:, :, i] = interp(pts).reshape(h, w)
 
     return x
 
@@ -192,7 +197,7 @@ def fspecial_gaussian(hsize, sigma):
     [x, y] = np.meshgrid(np.arange(-siz[1], siz[1]+1), np.arange(-siz[0], siz[0]+1))
     arg = -(x*x + y*y)/(2*std*std)
     h = np.exp(arg)
-    h[h < scipy.finfo(float).eps * h.max()] = 0
+    h[h < np.finfo(float).eps * h.max()] = 0
     sumh = h.sum()
     if sumh != 0:
         h = h/sumh

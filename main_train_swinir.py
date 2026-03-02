@@ -31,7 +31,7 @@ from models.select_model import define_Model
 '''
 
 
-def main(json_path='options/swinir/train_swinir_sr_classical.json'):
+def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     '''
     # ----------------------------------------
     # Step--1 (prepare opt)

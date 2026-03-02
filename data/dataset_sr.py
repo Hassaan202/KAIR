@@ -21,6 +21,8 @@ class DatasetSR(data.Dataset):
         self.sf = opt['scale'] if opt['scale'] else 4
         self.patch_size = self.opt['H_size'] if self.opt['H_size'] else 96
         self.L_size = self.patch_size // self.sf
+        # photometric augmentation flag (default: False)
+        self.use_photometric_aug = opt.get('use_photometric_aug', False)
 
         # ------------------------------------
         # get paths of L/H
@@ -90,6 +92,16 @@ class DatasetSR(data.Dataset):
             # --------------------------------
             mode = random.randint(0, 7)
             img_L, img_H = util.augment_img(img_L, mode=mode), util.augment_img(img_H, mode=mode)
+
+            # --------------------------------
+            # photometric augmentation (optional)
+            # --------------------------------
+            if self.use_photometric_aug:
+                aug = util.get_photometric_aug(p=0.5)
+                # Apply to both simultaneously
+                augmented = aug(image=img_H, image_lr=img_L)
+                img_H = augmented['image']
+                img_L = augmented['image_lr']
 
         # ------------------------------------
         # L/H pairs, HWC to CHW, numpy to tensor

@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.ndimage import convolve
 from piq import fsim
+import albumentations as A
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
@@ -374,10 +375,10 @@ def single42tensor4(img):
 
 '''
 # --------------------------------------------
-# Augmentation, flipe and/or rotate
+# Augmentation, flip and/or rotate
 # --------------------------------------------
 # The following two are enough.
-# (1) augmet_img: numpy image of WxHxC or WxH
+# (1) augment_img: numpy image of WxHxC or WxH
 # (2) augment_img_tensor4: tensor image 1xCxWxH
 # --------------------------------------------
 '''
@@ -488,6 +489,26 @@ def augment_imgs(img_list, hflip=True, rot=True):
         return img
 
     return [_augment(img) for img in img_list]
+
+
+def get_photometric_aug(p=0.5):
+    """
+    Returns a synchronized photometric augmentation pipeline.
+    Constraints: +/- 10-15% for SR stability.
+    """
+    return A.Compose([
+        A.RandomBrightnessContrast(
+            brightness_limit=0.12, # Roughly 12%
+            contrast_limit=0.12,
+            p=0.5
+        ),
+        A.HueSaturationValue(
+            hue_shift_limit=5,    # Very subtle hue shift
+            sat_shift_limit=15,   # Subtle saturation shift
+            val_shift_limit=10,
+            p=0.3
+        ),
+    ], additional_targets={'image_lr': 'image'}) # This tells it to sync with a second image
 
 
 '''

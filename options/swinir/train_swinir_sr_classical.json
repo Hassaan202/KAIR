@@ -22,6 +22,8 @@
 
       , "H_size": 192                  // 96/144|192/384 | 128/192/256/512. LR patch size is set to 48 or 64 when compared with RCAN or RRDB.
 
+      , "use_photometric_aug": false    // optional photometric augmentations
+
       , "dataloader_shuffle": true
       , "dataloader_num_workers": 8
       , "dataloader_batch_size": 16      // batch size 1 | 16 | 32 | 48 | 64 | 128. Total batch size =4x8=32 in SwinIR

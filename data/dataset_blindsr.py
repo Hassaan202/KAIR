@@ -22,6 +22,8 @@ class DatasetBlindSR(data.Dataset):
         self.degradation_type = opt['degradation_type'] if opt['degradation_type'] else 'bsrgan'
         self.lq_patchsize = self.opt['lq_patchsize'] if self.opt['lq_patchsize'] else 64
         self.patch_size = self.opt['H_size'] if self.opt['H_size'] else self.lq_patchsize*self.sf
+        # photometric augmentation flag (default: False)
+        self.use_photometric_aug = opt.get('use_photometric_aug', False)
 
         self.paths_H = util.get_image_paths(opt['dataroot_H'])
         print(len(self.paths_H))
@@ -66,6 +68,14 @@ class DatasetBlindSR(data.Dataset):
                 img_H = util.augment_img(img_H, mode=mode)
 
             img_H = util.uint2single(img_H)
+
+            # --------------------------------
+            # photometric augmentation (optional)
+            # --------------------------------
+            if self.use_photometric_aug:
+                aug = util.get_photometric_aug(p=0.5)
+                img_H = aug(image=img_H)['image']
+
             if self.degradation_type == 'bsrgan':
                 img_L, img_H = blindsr.degradation_bsrgan(img_H, self.sf, lq_patchsize=self.lq_patchsize, isp_model=None)
             elif self.degradation_type == 'bsrgan_plus':

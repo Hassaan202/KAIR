@@ -37,3 +37,8 @@ Modify the appropriate JSON file before running the script.
   identical filenames.
 - The dataloader relies on exact name matching to pair the inputs and targets correctly. If names differ, the 
   training process will fail or load incorrect pairs.
+
+dataset_sr for direct sr training: uses bicubic if lr not provided, geometric augmentations (crop, flips, rotations) 
+and radiometric augmentations applied on the go during training.
+
+dataset_blindsr for training using bsrgan model: performs degradation using bsrgan on-the-fly 
