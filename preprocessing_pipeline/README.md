@@ -1,12 +1,17 @@
 # KAIR Preprocessing Pipeline
 
-A fully configurable preprocessing pipeline for generating training data for super-resolution models. Supports two operational modes and four state-of-the-art degradation models.
+A fully configurable preprocessing pipeline for generating training data for super-resolution models. **Two pipeline scripts** are available for different use cases.
 
-## Features
+## 📋 Overview
 
-- **Two Pipeline Modes**:
-  - **HR-only mode**: Preprocess HR images → apply degradation → generate LR
-  - **HR/LR pair mode**: Preprocess existing HR/LR pairs (no degradation)
+### Pipeline Scripts
+
+| Script | Best For | Key Features |
+|--------|----------|--------------|
+| **`run_pipeline.py`** | General images, simple workflows | HR-only or HR/LR pair modes, basic preprocessing |
+| **`complete_pipeline.py`** | Satellite imagery, advanced workflows | Cloud masking, registration, relative normalization, **degradation support** |
+
+### Common Features
 
 - **Four Degradation Models**:
   - BSRGAN (ICCV 2021)
@@ -16,13 +21,49 @@ A fully configurable preprocessing pipeline for generating training data for sup
 
 - **Preprocessing Options**:
   - Percentile-based normalization
-  - Sentinel-2 cloud masking (via s2cloudless)
+  - Sentinel-2 cloud masking (via s2cloudless or QA bands)
+  - Spatial co-registration (complete_pipeline.py only)
+  - Relative normalization (complete_pipeline.py only)
 
 - **Fully Configurable**: All parameters exposed in JSON config
 
 ---
 
-## Usage
+## 🚀 Quick Start
+
+### Simple Pipeline (run_pipeline.py)
+
+```bash
+python preprocessing_pipeline/run_pipeline.py --config preprocessing_pipeline/config.json
+```
+
+### Advanced Satellite Pipeline (complete_pipeline.py) ⭐ NEW
+
+```bash
+python preprocessing_pipeline/complete_pipeline.py --config preprocessing_pipeline/config_l2.json
+```
+
+**📖 See [QUICK_START_DEGRADATION.md](QUICK_START_DEGRADATION.md) for complete_pipeline.py usage**
+
+---
+
+## 🎯 Which Pipeline Should I Use?
+
+### Use `run_pipeline.py` if:
+- ✅ You have general/natural images (DIV2K, Flickr2K, etc.)
+- ✅ You need simple HR→LR degradation
+- ✅ You don't need cloud masking or registration
+
+### Use `complete_pipeline.py` if:
+- ✅ You have satellite/remote sensing imagery
+- ✅ You need cloud/shadow masking
+- ✅ You need spatial alignment (registration)
+- ✅ You need mask-aware tiling and filtering
+- ✅ You want degradation + advanced preprocessing in one pipeline
+
+---
+
+## Usage: run_pipeline.py
 
 ### Basic Command
 
@@ -336,6 +377,169 @@ Enable multi-worker processing for large datasets:
 - Large images + degradation can use significant RAM
 - If OOM errors occur, reduce `num_workers` to 1
 - Consider processing in batches
+
+---
+
+## Usage: complete_pipeline.py (Advanced)
+
+### Overview
+
+`complete_pipeline.py` provides a comprehensive preprocessing pipeline for satellite/remote sensing imagery with **6 configurable steps**:
+
+1. **Cloud/Shadow/Snow Masking** - QA bands or s2cloudless
+2. **Relative Normalization** - Match radiometric distributions
+3. **Absolute Normalization** - Percentile clipping
+4. **Spatial Co-registration** - ECC-based alignment
+5. **Degradation** ⭐ - Generate synthetic LR from HR (NEW!)
+6. **Mask-Aware Tiling** - Extract tiles, filter by mask validity
+
+### Basic Command
+
+```bash
+python preprocessing_pipeline/complete_pipeline.py --config preprocessing_pipeline/config_l2.json
+```
+
+### Minimal Configuration (with Degradation)
+
+```json
+{
+  "task": "satellite_sr_preprocessing",
+  "n_channels": 3,
+  "seed": 42,
+  
+  "input_hr_dir": "trainsets/satellite/HR",
+  "output_hr_dir": "trainsets/satellite/HR_out",
+  "output_lr_dir": "trainsets/satellite/LR_out",
+  
+  "masking": {"enabled": true, "method": "qa_band"},
+  "normalization": {"enabled": true},
+  "registration": {"enabled": true},
+  
+  "degradation": {
+    "enabled": true,
+    "type": "satellite",
+    "scale": 4
+  },
+  
+  "tiling": {
+    "enabled": true,
+    "crop_size": 256,
+    "step": 192
+  }
+}
+```
+
+### When to Use Degradation
+
+**Enable degradation** (`"enabled": true`) when:
+- ✅ You have HR-only satellite images
+- ✅ You want to generate synthetic LR for training
+- ✅ Your input LR quality is poor/unrealistic
+
+**Disable degradation** (`"enabled": false`) when:
+- ❌ You have real HR/LR pairs to preprocess
+- ❌ You're preparing test data with real degradations
+
+### Complete Pipeline Features
+
+| Feature | Description | Config Key |
+|---------|-------------|------------|
+| **QA Band Masking** | Use Sentinel-2 SCL classes to mask clouds | `masking.method = "qa_band"` |
+| **s2cloudless** | ML-based cloud detection | `masking.method = "s2cloudless"` |
+| **Relative Norm** | Histogram matching between HR/LR | `relative_normalization.enabled` |
+| **Registration** | Align LR to HR via ECC | `registration.enabled` |
+| **Degradation** | Generate synthetic LR | `degradation.enabled` ⭐ |
+| **Mask-Aware Tiling** | Filter tiles by validity | `tiling.max_invalid_ratio` |
+
+### Degradation Models
+
+All four degradation models from `run_pipeline.py` are supported:
+
+```json
+{
+  "degradation": {
+    "enabled": true,
+    "type": "satellite",  // or "real_esrgan", "bsrgan", "bsrgan_plus"
+    "scale": 4,
+    
+    // Model-specific parameters
+    "satellite": {
+      "blur_prob_1": 1.0,
+      "poisson_prob_1": 0.75,
+      "haze_prob_1": 0.45,
+      // ... see config_l2.json for all parameters
+    }
+  }
+}
+```
+
+### Processing Flow
+
+**With degradation enabled**:
+```
+HR image → Mask → Normalize → Register with LR → Degrade HR → New LR → Tile both → Save tiles
+```
+
+**With degradation disabled**:
+```
+HR + LR pair → Mask both → Normalize both → Register → Tile both → Save tiles
+```
+
+### Documentation
+
+For detailed information about complete_pipeline.py degradation:
+
+- 📖 **[DEGRADATION_ENHANCEMENT.md](DEGRADATION_ENHANCEMENT.md)** - Comprehensive guide
+- 🚀 **[QUICK_START_DEGRADATION.md](QUICK_START_DEGRADATION.md)** - Quick reference & templates
+- 📝 **[CHANGES_SUMMARY.md](CHANGES_SUMMARY.md)** - Technical implementation details
+
+### Example: Satellite SR Training Data
+
+```bash
+# config_satellite_sr.json
+{
+  "task": "sentinel2_sr_training",
+  "input_hr_dir": "data/sentinel2/10m",
+  "input_qa_dir": "data/sentinel2/scl",
+  "output_hr_dir": "trainsets/sentinel2/HR",
+  "output_lr_dir": "trainsets/sentinel2/LR",
+  
+  "masking": {
+    "enabled": true,
+    "method": "qa_band",
+    "invalid_classes": [0, 1, 3, 8, 9, 10, 11]  // Mask clouds, shadows, snow
+  },
+  
+  "normalization": {
+    "enabled": true,
+    "mask_aware": true
+  },
+  
+  "degradation": {
+    "enabled": true,
+    "type": "satellite",
+    "scale": 4
+  },
+  
+  "tiling": {
+    "enabled": true,
+    "crop_size": 256,
+    "step": 128,
+    "max_invalid_ratio": 0.1
+  }
+}
+```
+
+Run:
+```bash
+python preprocessing_pipeline/complete_pipeline.py --config config_satellite_sr.json
+```
+
+Result:
+```
+trainsets/sentinel2/HR/     # 256x256 HR tiles (cloud-free)
+trainsets/sentinel2/LR/     # 64x64 degraded LR tiles (scale=4)
+```
 
 ---
 

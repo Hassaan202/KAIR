@@ -51,7 +51,13 @@ from preprocessing_pipeline.degradation_utils import (
 # -- Satellite preprocessing utilities --------------------------------------
 from preprocessing_pipeline.other_utils import (
     apply_s2cloudless_mask,
+    apply_l2_qa_mask,
+    align_images_ecc,
     satellite_pre_norm,
+    satellite_pre_norm_masked,
+    histogram_match,
+    mean_std_transfer,
+    relative_normalize,
 )
 
 __all__ = [
@@ -76,8 +82,16 @@ __all__ = [
     "imresize_np",
     "single2uint",
     "uint2single",
-    # satellite utils
+    # satellite utils – masking
     "apply_s2cloudless_mask",
+    "apply_l2_qa_mask",
+    # satellite utils – registration
+    "align_images_ecc",
+    # satellite utils – normalization
     "satellite_pre_norm",
+    "satellite_pre_norm_masked",
+    "histogram_match",
+    "mean_std_transfer",
+    "relative_normalize",
 ]
 
