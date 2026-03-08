@@ -9,7 +9,7 @@
 
   , "path": {
     "root": "superresolution"            // "denoising" | "superresolution" | "dejpeg"
-    , "pretrained_netG":  "model_zoo/swinir/002_lightweightSR_DIV2K_s64w8_SwinIR-S_x2"     // path of pretrained model. We fine-tune X3/X4 models from X2 model, so that `G_optimizer_lr` and `G_scheduler_milestones` can be halved to save time.
+    , "pretrained_netG":  "model_zoo/swinir/002_lightweightSR_DIV2K_s64w8_SwinIR-S_x2.pth"     // path of pretrained model. We fine-tune X3/X4 models from X2 model, so that `G_optimizer_lr` and `G_scheduler_milestones` can be halved to save time.
     , "pretrained_netE": null      // path of pretrained model
   }
 
