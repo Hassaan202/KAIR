@@ -91,20 +91,13 @@ if __name__ == '__main__':
                                    '001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth', '001_classicalSR_DF2K_s64w8_SwinIR-M_x8.pth', 
                                    '001_classicalSR_DIV2K_s48w8_SwinIR-M_x2.pth', '001_classicalSR_DIV2K_s48w8_SwinIR-M_x3.pth', 
                                    '001_classicalSR_DIV2K_s48w8_SwinIR-M_x4.pth', '001_classicalSR_DIV2K_s48w8_SwinIR-M_x8.pth', 
-
-                                   '002_lightweightSR_DIV2K_s64w8_SwinIR-S_x2.pth', '002_lightweightSR_DIV2K_s64w8_SwinIR-S_x3.pth',
-                                   '002_lightweightSR_DIV2K_s64w8_SwinIR-S_x4.pth',
-
-                                   '003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.pth', '003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_PSNR.pth',
-                                   '003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x2_GAN.pth'
-                                   
+                                   '002_lightweightSR_DIV2K_s64w8_SwinIR-S_x2.pth', '002_lightweightSR_DIV2K_s64w8_SwinIR-S_x3.pth', 
+                                   '002_lightweightSR_DIV2K_s64w8_SwinIR-S_x4.pth', '003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.pth', 
+                                   '003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_PSNR.pth',
                                    '004_grayDN_DFWB_s128w8_SwinIR-M_noise15.pth',
                                    '004_grayDN_DFWB_s128w8_SwinIR-M_noise25.pth', '004_grayDN_DFWB_s128w8_SwinIR-M_noise50.pth', 
-
-                                   '005_colorDN_DFWB_s128w8_SwinIR-M_noise15.pth', '005_colorDN_DFWB_s128w8_SwinIR-M_noise25.pth',
-                                   '005_colorDN_DFWB_s128w8_SwinIR-M_noise50.pth',
-
-                                   '006_CAR_DFWB_s126w7_SwinIR-M_jpeg10.pth',
+                                   '005_colorDN_DFWB_s128w8_SwinIR-M_noise15.pth', '005_colorDN_DFWB_s128w8_SwinIR-M_noise25.pth', 
+                                   '005_colorDN_DFWB_s128w8_SwinIR-M_noise50.pth', '006_CAR_DFWB_s126w7_SwinIR-M_jpeg10.pth', 
                                    '006_CAR_DFWB_s126w7_SwinIR-M_jpeg20.pth', '006_CAR_DFWB_s126w7_SwinIR-M_jpeg30.pth', 
                                    '006_CAR_DFWB_s126w7_SwinIR-M_jpeg40.pth'],
                         'VRT': ['001_VRT_videosr_bi_REDS_6frames.pth', '002_VRT_videosr_bi_REDS_16frames.pth',
