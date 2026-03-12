@@ -1,5 +1,5 @@
 {
-  "task": "swinir_sr_realworld_x2_gan" // real-world image sr. root/task/images|models|options
+  "task": "swinir_sr_realworld_x2_gan_64_to_128" // real-world image sr. root/task/images|models|options
   , "model": "gan"        // "gan"
   , "gpu_ids": [0]
 
@@ -21,9 +21,9 @@
       , "dataroot_L": "trainsets/Sen2Venus/LR"              // path of L training dataset
 
       , "degradation_type": "bsrgan"    // "bsrgan" | "bsrgan_plus"
-      , "H_size": 256                   // patch_size 256 | 288 | 320
+      , "H_size": 128                   // patch_size 256 | 288 | 320
       , "shuffle_prob": 0.1             //
-      , "lq_patchsize": 128
+      , "lq_patchsize": 64
       , "use_sharp": true
 
       , "dataloader_shuffle": true
@@ -35,9 +35,9 @@
       , "dataset_type": "sr"
 
       , "degradation_type": "bsrgan"    // "bsrgan" | "bsrgan_plus"
-      , "H_size": 256                   // patch_size 256 | 288 | 320
+      , "H_size": 128                   // patch_size 256 | 288 | 320
       , "shuffle_prob": 0.1             //
-      , "lq_patchsize": 128
+      , "lq_patchsize": 64
       , "use_sharp": false
 
       , "dataroot_H": "testsets/Sen2Venus/HR"   // path of H testing dataset
@@ -49,7 +49,7 @@
     "net_type": "swinir"
     , "upscale": 2
     , "in_chans": 3
-    , "img_size": 128
+    , "img_size": 64
     , "window_size": 8
     , "img_range": 1.0
     , "depths": [6, 6, 6, 6, 6, 6]
