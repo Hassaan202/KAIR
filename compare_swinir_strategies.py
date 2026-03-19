@@ -58,8 +58,26 @@ def load_model(model_path, opt):
                    resi_connection=opt['resi_connection'])
     
     pretrained_model = torch.load(model_path, map_location=device)
-    param_key_g = 'params_ema' if 'params_ema' in pretrained_model else 'params'
-    model.load_state_dict(pretrained_model[param_key_g], strict=True)
+    
+    # Try different common keys for state_dict, fallback to the object itself
+    if 'params_ema' in pretrained_model:
+        state_dict = pretrained_model['params_ema']
+    elif 'params' in pretrained_model:
+        state_dict = pretrained_model['params']
+    elif 'netG' in pretrained_model:
+        state_dict = pretrained_model['netG']
+    elif 'state_dict' in pretrained_model:
+        state_dict = pretrained_model['state_dict']
+    else:
+        state_dict = pretrained_model
+
+    # Remove 'module.' prefix if it exists (for models trained with DataParallel)
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        name = k[7:] if k.startswith('module.') else k
+        new_state_dict[name] = v
+        
+    model.load_state_dict(new_state_dict, strict=True)
     model.eval()
     model = model.to(device)
     return model
