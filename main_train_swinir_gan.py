@@ -27,7 +27,7 @@ from models.select_model import define_Model
 '''
 
 
-def main(json_path='options/swinir/train_swinir_sr_realworld_x2_gan.json'):
+def main(json_path='options/swinir/train_swinir_sr_realworld_x4_gan.json'):
 
     '''
     # ----------------------------------------

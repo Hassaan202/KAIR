@@ -54,7 +54,7 @@ CONFIG = {
     # Increased sigma_optics to smoothen the image and prevent "boxy" sharp edges
     "noise_level1": 0.1,
     "noise_level2": 0.5,
-    "mtf_sigma_optics_range": (1.2, 2.5), 
+    "mtf_sigma_optics_range": (2.0, 2.5),
     "mtf_detector_width_range": (1.0, 1.2),
     "mtf_atm_sigma_range": (0.5, 1.2),
     
