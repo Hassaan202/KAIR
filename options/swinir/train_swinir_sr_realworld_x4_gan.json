@@ -8,7 +8,7 @@
 
   , "path": {
     "root": "superresolution"  // "denoising" | "superresolution" | "dejpeg"
-    , "pretrained_netG": null  // path of pretrained model
+    , "pretrained_netG": "model_zoo/swinir/001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth"  // path of pretrained model
     , "pretrained_netD": null  // path of pretrained model
 	, "pretrained_netE": null  // path of pretrained model
 	}
