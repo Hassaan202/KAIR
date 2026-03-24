@@ -15,7 +15,7 @@ CONFIG = {
     "folder_sr": "superresolution/swinir_sr_realworld_x2_gan/images",
     "folder_hr": "testsets/Sen2Venus/HR",
     "output_dir": "comparisons_sen2venus",
-    "num_samples": 20,  # Number of images to process (None for all)
+    "num_samples": 1000,  # Number of images to process (None for all)
     "font_size": 15,
     "padding": 10
 }
@@ -103,7 +103,9 @@ def main():
         sr_dict = organize_images_by_identifier(CONFIG['folder_sr'], is_subdirectory_based=False)
 
     # Find common identifiers
-    common_ids = sorted(list(set(hr_dict.keys()) & set(sr_dict.keys())))
+    import random
+    common_ids = list(set(hr_dict.keys()) & set(sr_dict.keys()))
+    random.shuffle(common_ids)
     
     if not common_ids:
         print("Error: No matching identifiers found between HR and SR folders.")

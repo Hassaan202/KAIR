@@ -17,7 +17,7 @@ CONFIG = {
     "testset_L": "testsets/Sen2Venus/LR_x4",                   # Path to LR images
     "testset_H": "testsets/Sen2Venus/HR",                   # Path to HR images (GT)
     "output_dir": "comparsion_results/swinir_comparison",
-    "num_samples": 100,                                  # Number of images to sample (None for all)
+    "num_samples": 10000,                                  # Number of images to sample (None for all)
     
     # SwinIR parameters (matching the provided JSONs)
     "netG_2x": {
