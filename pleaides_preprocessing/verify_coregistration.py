@@ -53,7 +53,7 @@ from tqdm import tqdm
 CONFIG_JSON_PATH = "config.json"
 
 CONFIG = {
-    "OUTPUT_DIR":     "output_2",
+    "OUTPUT_DIR":     "output_3",
     "HR_PATCH_SIZE":  256,
     "LR_PATCH_SIZE":  128,
     "SCALE_FACTOR":   2,
@@ -62,7 +62,7 @@ CONFIG = {
 
 # Verification-specific settings
 VERIFY_CONFIG = {
-    "N_SAMPLES":        200,     # Number of patches to analyse (None = all)
+    "N_SAMPLES":        50,     # Number of patches to analyze (None = all)
     "SAMPLE_SEED":      42,     # RNG seed for reproducible patch selection
     "BLINKER_FPS":      3,      # Frames per second for the blinker GIF
     "BLINKER_LOOPS":    0,      # 0 = loop forever
