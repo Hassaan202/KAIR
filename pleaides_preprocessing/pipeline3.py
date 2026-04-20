@@ -52,9 +52,9 @@ CONFIG_JSON_PATH: str = "config.json"
 
 CONFIG: dict = {
     # ── Paths ─────────────────────────────────────────────────────────────────
-    "HR_IMAGE_PATH": "Lahore/HR/3df615fc-2ded-4bd0-85de-237901ccb04f_NONE_STD_A/IMG_01_PNEO3_PMS-FS/IMG_PNEO3_STD_202601250555400_PMS-FS_ORT_1e224074-3a2a-4f29-cfe4-ab0a484fbd47_RGB_R1C1.JP2",
-    "LR_IMAGE_PATH": "Lahore/LR/IMG_PHR1A_PMS_001/IMG_PHR1A_PMS_202602130556014_ORT_38a71b19-2781-4146-c1f3-561512adaf94_R1C1.JP2",
-    "OUTPUT_DIR":    "output_3",
+    "HR_IMAGE_PATH": "Balochistan/HR/IMG_01_PNEO3_PMS-FS/IMG_PNEO3_STD_202412270618030_PMS-FS_ORT_8890893f-e83d-4945-c9b8-34285e050d25_RGB_R1C1.JP2",
+    "LR_IMAGE_PATH": "Balochistan/LR/IMG_PHR1B_PMS_001/IMG_PHR1B_PMS_202411250620441_ORT_60d7bc1c-c96f-4a56-cae1-6219b82fff87_R1C1.JP2",
+    "OUTPUT_DIR":    "Balochistan_3",
 
     # ── Band Mappings ─────────────────────────────────────────────────────────
     "HR_RGB_BANDS": [1, 2, 3],  # Pleiades Neo:  Red=1, Green=2, Blue=3
@@ -72,7 +72,7 @@ CONFIG: dict = {
     "CLIP_PERCENTILES": [2.0, 98.0],
 
     # ── Quality-filter thresholds ─────────────────────────────────────────────
-    "MAX_NODATA_FRACTION": 0.05,
+    "MAX_NODATA_FRACTION": 0.1,
     "MIN_VARIANCE":        50.0,
 
     # ── Coregistration — Stage A (ORB) ────────────────────────────────────────
@@ -95,7 +95,7 @@ CONFIG: dict = {
     "COREG_C_DISCARD_ON_FAIL": True,
 
     # ── Post-alignment quality gates ──────────────────────────────────────────
-    "MIN_ECC_SCORE": 0.85,
+    "MIN_ECC_SCORE": 0.70,
     "MIN_SSIM":      0.60,
 
     # ── Module 5 — Radiometric Regression (sen2venus §2.5.4) ─────────────────
@@ -139,7 +139,6 @@ CONFIG: dict = {
     "RADIOMETRIC_N_SAMPLES":       100_000,
     "RADIOMETRIC_POST_HIST_MATCH": True,
 }
-
 
 def build_config() -> dict:
     """

@@ -11,7 +11,7 @@ Four diagnostic tests on saved HR/LR patch pairs from the preprocessing pipeline
 Usage
 -----
   python verify_coregistration.py                    # uses CONFIG defaults
-  python verify_coregistration.py --output output_3  # override output dir
+  python verify_coregistration.py --output Lahore_3  # override output dir
   python verify_coregistration.py --n 20             # sample 20 patches
 
 Output layout
@@ -53,7 +53,7 @@ from tqdm import tqdm
 CONFIG_JSON_PATH = "config.json"
 
 CONFIG = {
-    "OUTPUT_DIR":     "output_4",
+    "OUTPUT_DIR":     "Karachi_3",
     "HR_PATCH_SIZE":  256,
     "LR_PATCH_SIZE":  128,
     "SCALE_FACTOR":   2,
