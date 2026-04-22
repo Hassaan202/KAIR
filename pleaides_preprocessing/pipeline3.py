@@ -52,92 +52,55 @@ CONFIG_JSON_PATH: str = "config.json"
 
 CONFIG: dict = {
     # ── Paths ─────────────────────────────────────────────────────────────────
-    "HR_IMAGE_PATH": "Balochistan/HR/IMG_01_PNEO3_PMS-FS/IMG_PNEO3_STD_202412270618030_PMS-FS_ORT_8890893f-e83d-4945-c9b8-34285e050d25_RGB_R1C1.JP2",
-    "LR_IMAGE_PATH": "Balochistan/LR/IMG_PHR1B_PMS_001/IMG_PHR1B_PMS_202411250620441_ORT_60d7bc1c-c96f-4a56-cae1-6219b82fff87_R1C1.JP2",
-    "OUTPUT_DIR":    "Balochistan_3",
+    "HR_IMAGE_PATH": "Lahore Raw\Lahore HR\IMG_01_PNEO3_PMS-FS\IMG_PNEO3_STD_202601250555400_PMS-FS_ORT_1e224074-3a2a-4f29-cfe4-ab0a484fbd47_RGB_R1C1.JP2",
+    "LR_IMAGE_PATH": "Lahore Raw\Lahore LR\IMG_PHR1A_PMS_001\IMG_PHR1A_PMS_202602130556014_ORT_38a71b19-2781-4146-c1f3-561512adaf94_R1C1.JP2",
+    "OUTPUT_DIR":    "Lahore_4",
 
-    # ── Band Mappings ─────────────────────────────────────────────────────────
-    "HR_RGB_BANDS": [1, 2, 3],  # Pleiades Neo:  Red=1, Green=2, Blue=3
-    "LR_RGB_BANDS": [3, 2, 1],  # Pleiades 1A:   Red=3, Green=2, Blue=1
+# ── Band Mappings (already correct for these sensors) ──────────────────
+    "HR_RGB_BANDS": [1, 2, 3],   # Red=1, Green=2, Blue=3 (Neo)
+    "LR_RGB_BANDS": [3, 2, 1],   # Red=3, Green=2, Blue=1 (1A)
 
-    # ── Patch geometry ────────────────────────────────────────────────────────
-    "SCALE_FACTOR":   2,
-    "HR_PATCH_SIZE":  256,
-    "LR_PATCH_SIZE":  128,   # Derived automatically — do not set manually
-    "STRIDE":         128,
+    # ── Patch geometry — OPTIMAL FOR SR TRAINING ───────────────────────────
+    "SCALE_FACTOR":   2,          # fixed for ×2 SR (standard)
+    "HR_PATCH_SIZE":  256,        # SEN2VENµS standard; ideal for most SR backbones
+    "LR_PATCH_SIZE":  128,        # auto-derived — do NOT change
+    "STRIDE":         64,         # ← CHANGED: 75 % overlap → ~4× more patches than default 128
 
-    # ── Radiometric parameters ────────────────────────────────────────────────
+    # ── Radiometric parameters (8-bit output) ──────────────────────────────
     "NODATA_VALUE":     0,
     "SATURATED_VALUE":  32767,
-    "CLIP_PERCENTILES": [2.0, 98.0],
+    "CLIP_PERCENTILES": [2.0, 98.0],   # standard, robust to outliers
 
-    # ── Quality-filter thresholds ─────────────────────────────────────────────
-    "MAX_NODATA_FRACTION": 0.1,
-    "MIN_VARIANCE":        50.0,
+    # ── Quality-filter thresholds — tightened for SR quality ───────────────
+    "MAX_NODATA_FRACTION": 0.05,      # ← tightened from 0.1 (less cloud/edge junk)
+    "MIN_VARIANCE":        120.0,     # ← raised from 50 (ensures textured urban detail; flat areas hurt SR learning)
 
-    # ── Coregistration — Stage A (ORB) ────────────────────────────────────────
+    # ── Coregistration — keep all stages enabled (critical for multi-sensor) ─
     "COREG_A_ENABLED":       True,
-    "COREG_A_MAX_FEATURES":  5000,
+    "COREG_A_MAX_FEATURES":  8000,      # ← increased (more robust on urban Lahore)
     "COREG_A_MATCH_RATIO":   0.75,
-    "COREG_A_RANSAC_THRESH": 5.0,
+    "COREG_A_RANSAC_THRESH": 4.0,       # ← tightened
     "COREG_A_DOWNSAMPLE":    0.25,
 
-    # ── Coregistration — Stage B (Phase Correlation) ──────────────────────────
     "COREG_B_ENABLED":         True,
     "COREG_B_DOWNSAMPLE":      0.25,
     "COREG_B_UPSAMPLE_FACTOR": 100,
 
-    # ── Coregistration — Stage C (ECC Patch-wise) ────────────────────────────
     "COREG_C_ENABLED":         True,
-    "COREG_C_MAX_ITER":        50,
-    "COREG_C_EPS":             1e-4,
+    "COREG_C_MAX_ITER":        100,     # ← increased for better convergence
+    "COREG_C_EPS":             1e-5,
     "COREG_C_WARP_MODE":       "translation",
     "COREG_C_DISCARD_ON_FAIL": True,
 
-    # ── Post-alignment quality gates ──────────────────────────────────────────
-    "MIN_ECC_SCORE": 0.70,
-    "MIN_SSIM":      0.60,
+    # ── Post-alignment quality gates — stricter for clean training pairs ─────
+    "MIN_ECC_SCORE": 0.78,    # ← raised from 0.70 (excellent local alignment)
+    "MIN_SSIM":      0.72,    # ← raised from 0.60 (strong structural match)
 
-    # ── Module 5 — Radiometric Regression (sen2venus §2.5.4) ─────────────────
-    # Linear least-squares fit:  [LR_R, LR_G, LR_B, 1] @ W = [HR_R, HR_G, HR_B]
-    # W is a (4, 3) weight matrix estimated once per scene from randomly sampled
-    # pixels, after discarding spatial blocks with high RMSE (outlier rejection).
-    #
-    # RADIOMETRIC_BLOCK_SIZE      — Non-overlapping block edge length (HR pixels)
-    #   used to compute per-block RMSE before fitting. Blocks with RMSE above the
-    #   threshold are excluded from the pixel sampling pool. Smaller blocks give
-    #   finer-grained outlier rejection; larger blocks are faster.
-    #
-    # RADIOMETRIC_RMSE_THRESHOLD  — Maximum per-block RMSE (in 0-255 uint8 units)
-    #   a block may have to be included in the regression fitting pool.
-    #   Analogous to the "0.2 reflectance count" threshold in the paper, scaled
-    #   to 8-bit space. Default 30 ≈ 12 % of full scale; increase to be more
-    #   permissive (include noisier blocks), decrease to be stricter.
-    #
-    # RADIOMETRIC_N_SAMPLES       — Maximum number of pixel pairs to draw
-    #   from the accepted blocks for the lstsq solve. More samples give a more
-    #   stable fit at the cost of memory. 100 000 is sufficient for full scenes.
-    # Stage 5B — Histogram Matching Refinement (optional, enabled by default)
-    # -------------------------------------------------------------------------
-    # The linear model corrects systematic gain/offset and cross-band spectral
-    # leakage, but cannot fully compensate nonlinear differences caused by:
-    #   • Pleiades 1A Red band extending ~100 nm further into NIR than Neo Red,
-    #     which darkens vegetation at high radiance — a content-dependent effect
-    #     no affine transform can invert.
-    #   • Per-channel S-curve differences in sensor transfer functions.
-    # A global per-channel histogram match applied AFTER regression corrects
-    # these residual nonlinear tonal discrepancies while preserving the spatial
-    # detail and cross-band adjustments from Stage 5A.
-    # Set False to use regression output only (e.g. for ablation studies).
-    #
-    # RADIOMETRIC_RMSE_THRESHOLD — Raise if fewer than ~30 % of blocks are
-    #   accepted (check the log). Default 60 ≈ 24 % of full scale — generous
-    #   enough to include diverse land cover while rejecting large outliers from
-    #   clouds or construction between the two acquisition dates.
+    # ── Radiometric Regression (sen2venus §2.5.4 style) ─────────────────────
     "RADIOMETRIC_BLOCK_SIZE":      256,
-    "RADIOMETRIC_RMSE_THRESHOLD":  40.0,
-    "RADIOMETRIC_N_SAMPLES":       100_000,
-    "RADIOMETRIC_POST_HIST_MATCH": True,
+    "RADIOMETRIC_RMSE_THRESHOLD":  35.0,   # ← tightened from 40 (dates are only ~19 days apart → very similar scenes)
+    "RADIOMETRIC_N_SAMPLES":       150_000, # more samples = stabler fit
+    "RADIOMETRIC_POST_HIST_MATCH": True,    # ← KEEP ENABLED (corrects NIR leakage & S-curve differences between Neo & 1A)
 }
 
 def build_config() -> dict:

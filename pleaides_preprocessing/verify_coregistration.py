@@ -53,7 +53,7 @@ from tqdm import tqdm
 CONFIG_JSON_PATH = "config.json"
 
 CONFIG = {
-    "OUTPUT_DIR":     "Karachi_3",
+    "OUTPUT_DIR":     "Lahore_4",
     "HR_PATCH_SIZE":  256,
     "LR_PATCH_SIZE":  128,
     "SCALE_FACTOR":   2,
@@ -422,7 +422,7 @@ def write_report(records: list, out_path: Path, cfg: dict, vcfg: dict) -> None:
         "=" * 78,
     ]
 
-    out_path.write_text("\n".join(lines))
+    out_path.write_text("\n".join(lines), encoding="utf-8")
     logging.info("Report written to: %s", out_path)
 
 
