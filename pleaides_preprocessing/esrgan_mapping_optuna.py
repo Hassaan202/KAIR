@@ -15,9 +15,9 @@ Satellite-specific adjustments vs. vanilla Real-ESRGAN
   RETAINED : resize            – sensor pixel integration / Nyquist aliasing
   RETAINED : Gaussian noise    – electronic read-noise + dark current
   RETAINED : Poisson noise     – dominant photon shot-noise in optical sensors
-  RETAINED : resize-back       – inter-stage aliasing / scale-mismatch artefacts
+  RETAINED : resize-back       – inter-stage aliasing / scale-mismatch artifacts
 
-Metrics optimised (all defined in your utils.py)
+Metrics optimized (all defined in your utils.py)
 -------------------------------------------------
   PSNR, SSIM, SAM, UIQI, FSIM, RMSE, IT-SSIM, SRER
 

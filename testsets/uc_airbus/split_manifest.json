@@ -1,0 +1,37 @@
+{
+  "total_pairs": 4629,
+  "train_pairs": 3703,
+  "test_pairs": 926,
+  "copied_train": 3703,
+  "copied_test": 926,
+  "skipped": 0,
+  "train_ratio": 0.8,
+  "seed": 42,
+  "output_train_root": "E:/FAST/SUPARCO/KAIR/trainsets/uc_airbus",
+  "output_test_root": "E:/FAST/SUPARCO/KAIR/testsets/uc_airbus",
+  "split_mode": "stratified_per_dataset",
+  "per_dataset_split": {
+    "airbus": {
+      "total_pairs": 2529,
+      "train_pairs": 2023,
+      "test_pairs": 506
+    },
+    "ucmerced": {
+      "total_pairs": 2100,
+      "train_pairs": 1680,
+      "test_pairs": 420
+    }
+  },
+  "datasets": [
+    {
+      "name": "airbus",
+      "hr_dir": "E:/FAST/SUPARCO/KAIR/pleaides_preprocessing/Lahore_3/hr",
+      "lr_dir": "E:/FAST/SUPARCO/KAIR/pleaides_preprocessing/Lahore_3/lr"
+    },
+    {
+      "name": "ucmerced",
+      "hr_dir": "E:/FAST/SUPARCO/KAIR/trainsets/UCMerced_LandUse/hr_all",
+      "lr_dir": "E:/FAST/SUPARCO/KAIR/trainsets/UCMerced_LandUse/lr_esrgan"
+    }
+  ]
+}

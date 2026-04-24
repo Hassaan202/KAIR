@@ -1,5 +1,5 @@
 {
-  "task": "swinir_sr_realworld_x2_gan_airbus_only" // real-world image sr. root/task/images|models|options
+  "task": "swinir_sr_realworld_x2_gan_airbus_ucmerced" // real-world image sr. root/task/images|models|options
   , "model": "gan"        // "gan"
   , "gpu_ids": [0]
 
@@ -17,8 +17,8 @@
     "train": {
       "name": "train_dataset"           // just name
       , "dataset_type": "sr"       // "dncnn" | "dnpatch" | "fdncnn" | "ffdnet" | "sr" | "srmd" | "dpsr" | "plain" | "plainpatch" | "jpeg"
-      , "dataroot_H": "trainsets/airbus/hr"// path of H training dataset. DIV2K (800 training images) + Flickr2K (2650 images) + + OST (10324 images)
-      , "dataroot_L": "trainsets/airbus/lr"              // path of L training dataset
+      , "dataroot_H": "trainsets/uc_airbus/hr"// path of H training dataset. DIV2K (800 training images) + Flickr2K (2650 images) + + OST (10324 images)
+      , "dataroot_L": "trainsets/uc_airbus/lr"              // path of L training dataset
 
       , "degradation_type": "bsrgan"    // "bsrgan" | "bsrgan_plus"
       , "H_size": 256                   // patch_size 256 | 288 | 320
@@ -40,8 +40,8 @@
       , "lq_patchsize": 128
       , "use_sharp": false
 
-      , "dataroot_H": "testsets/airbus/hr"   // path of H testing dataset
-      , "dataroot_L": "testsets/airbus/lr"              // path of L testing dataset
+      , "dataroot_H": "testsets/uc_airbus/hr"   // path of H testing dataset
+      , "dataroot_L": "testsets/uc_airbus/lr"              // path of L testing dataset
     }
   }
 
