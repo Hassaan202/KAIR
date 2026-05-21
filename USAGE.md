@@ -16,7 +16,29 @@ This file covers all usage instructions for SwinIR training, testing, and remote
 
 ## Setup
 
-### Step 1 — Check your CUDA version
+### Step 1 — Create a virtual environment
+
+It is strongly recommended to use a Python virtual environment to isolate dependencies.
+
+```bash
+# Create the environment (run once)
+python -m venv .venv
+
+# Activate — Windows (Command Prompt)
+.venv\Scripts\activate.bat
+
+# Activate — Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+
+# Activate — Linux / macOS
+source .venv/bin/activate
+```
+
+The prompt will change to show `(.venv)` when the environment is active. All subsequent `pip install` commands should be run inside this environment.
+
+---
+
+### Step 2 — Check your CUDA version (skip if CPU-only)
 
 PyTorch must be installed with a build that matches the CUDA version installed on your machine.
 
@@ -29,7 +51,7 @@ Look for the `CUDA Version` value in the top-right of the output, e.g. `CUDA Ver
 
 ---
 
-### Step 2 — Install PyTorch
+### Step 3 — Install PyTorch
 
 Go to [https://pytorch.org/get-started/locally/](https://pytorch.org/get-started/locally/) and select your OS, package manager, and CUDA version to get the correct install command.
 
@@ -50,7 +72,7 @@ print(torch.cuda.get_device_name(0))  # should print your GPU name
 
 ---
 
-### Step 3 — Install remaining dependencies
+### Step 4 — Install remaining dependencies
 
 ```bash
 pip install -r requirement.txt
