@@ -86,7 +86,7 @@ pip install -r requirement.txt
 
 ### 1.1 `pleaides_preprocessing/pipeline3.py` — Main Pipeline
 
-**What it does:** Preprocesses paired HR/LR Pleiades satellite GeoTIFF/JP2 images into matched 8-bit RGB patch pairs suitable for SR training. Handles spatial coregistration, radiometric normalisation, and patch extraction with quality filtering.
+Preprocesses paired HR/LR Pleiades satellite GeoTIFF/JP2 images into matched 8-bit RGB patch pairs suitable for SR training. Handles spatial coregistration, radiometric normalisation, and patch extraction with quality filtering.
 
 **Run:**
 ```bash
@@ -115,11 +115,13 @@ python pleaides_preprocessing/pipeline3.py
 
 **Outputs:** Patch PNGs under `<OUTPUT_DIR>/hr/` and `<OUTPUT_DIR>/lr/`, plus a timestamped log file.
 
+> **Note:** Configuration must be updated in accordance to the imagery files to be preprocessed.
+
 ---
 
 ### 1.2 `pleaides_preprocessing/verify_coregistration.py` — Coregistration Verification
 
-**What it does:** Diagnostic suite to verify that HR and LR patches produced by the pipeline are properly aligned. Produces GIFs, diff heatmaps, checkerboard overlays, SSIM heatmaps, and a summary report.
+Diagnostic suite to verify that HR and LR patches produced by the pipeline are properly aligned. Produces GIFs, diff heatmaps, checkerboard overlays, SSIM heatmaps, and a summary report.
 
 **Run:**
 ```bash
@@ -146,7 +148,7 @@ python pleaides_preprocessing/verify_coregistration.py --output Lahore_4 --n 50
 
 ### 1.3 `pleaides_preprocessing/esrgan_mapping_optuna.py` — Learn Satellite Degradation
 
-**What it does:** Uses Optuna to learn a satellite-aware degradation model (blur, resize, noise) that matches real LR images. Writes learned parameters to `best_degradation.json`.
+Uses Optuna to learn a satellite-aware degradation model (blur, resize, noise) that matches real LR images. Writes learned parameters to `best_degradation.json`.
 
 **Run:**
 ```bash
@@ -159,14 +161,14 @@ Configure paired HR/LR folder paths at the top of the file. The output `best_deg
 
 ### 1.4 `pleaides_preprocessing/apply_esrgan_degradation.py` — Apply Learned Degradation
 
-**What it does:** Applies `best_degradation.json` parameters to a directory of HR images to create synthetic LR images for ESRGAN/Real-ESRGAN-style training.
+Applies `best_degradation.json` parameters to a directory of HR images to create synthetic LR images for ESRGAN/Real-ESRGAN-style training.
 
 **Run:**
 ```bash
 python pleaides_preprocessing/apply_esrgan_degradation.py
 ```
 
-**Key `CONFIG` keys:**
+**Primary `CONFIG` keys:**
 
 | Key | Description |
 |-----|-------------|
@@ -201,7 +203,7 @@ lr, _ = degrade_satellite(hr_img, **params)  # hr_img: float32 H×W×3 in [0,1]
 
 ### 2.1 `main_train_swinir.py` — PSNR Training
 
-**What it does:** Trains a SwinIR model using a pixel-level loss (L1 by default). Suitable for classical SR and lightweight SR. Produces PSNR-optimised weights.
+Trains a SwinIR model using a pixel-level loss (L1 by default). Suitable for classical SR and lightweight SR. Produces PSNR-optimised weights.
 
 **Run:**
 ```bash
@@ -224,7 +226,7 @@ Default config: `options/swinir/train_swinir_sr_classical.json`
 
 ### 2.2 `main_train_swinir_gan.py` — GAN Training
 
-**What it does:** Trains a SwinIR model using adversarial (GAN) + perceptual losses. Produces perceptually sharper outputs at the cost of lower PSNR. Use after PSNR pre-training.
+Trains a SwinIR model using adversarial (GAN) + perceptual losses. Produces perceptually sharper outputs at the cost of lower PSNR. Use after PSNR pre-training.
 
 **Run:**
 ```bash
@@ -428,7 +430,7 @@ superresolution/
 
 ### 3.1 `main_test_swinir_config.py` — Inference + Metrics
 
-**What it does:** Runs a trained SwinIR model on LR images to produce SR outputs, saves them to disk, and reports average metrics (PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER) against HR ground truth. Config is in-file; no JSON options file needed.
+Runs a trained SwinIR model on LR images to produce SR outputs, saves them to disk, and reports average metrics (PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER) against HR ground truth. Config is in-file.
 
 **Run:**
 ```bash
@@ -480,7 +482,7 @@ These must exactly match the architecture used during training.
 
 ### 3.2 `main_evaluate_swinir_by_class.py` — Class-Wise Evaluation
 
-**What it does:** Evaluates SR results by class for UCMerced-style datasets. HR images are expected flat in `hr_dir`, named `ucmerced_{class}{digits}.png`. Automatically picks the highest-iteration SR file for each image. Produces per-image, per-class, and global average metrics in a log file.
+Evaluates SR results by class for UCMerced-style datasets. HR images are expected flat in `hr_dir`, named `ucmerced_{class}{digits}.png`. Automatically picks the highest-iteration SR file for each image. Produces per-image, per-class, and global average metrics in a log file.
 
 **Run:**
 ```bash
@@ -509,7 +511,7 @@ The script picks the file with the highest iteration number automatically.
 
 **Output:** A structured log file with per-image results, per-class summaries, and a global summary table across all classes.
 
-**Note:** Class extraction strips the `ucmerced_` prefix and trailing digits from the filename stem. If your dataset uses a different naming scheme, update `extract_ucmerced_class()` in the script.
+> **Note:** Class extraction strips the `ucmerced_` prefix and trailing digits from the filename stem. If your dataset uses a different naming scheme, update `extract_ucmerced_class()` in the script.
 
 ---
 
@@ -517,7 +519,7 @@ The script picks the file with the highest iteration number automatically.
 
 ### `compare_images_side_by_side.py`
 
-**What it does:** Creates side-by-side comparison images showing LR | SR | HR for each patch. Handles both flat and per-image subdirectory SR layouts. Supports random or manual patch selection.
+Creates side-by-side comparison images showing LR | SR | HR for each patch. Handles both flat and per-image subdirectory SR layouts. Supports random or manual patch selection.
 
 **Run:**
 ```bash
