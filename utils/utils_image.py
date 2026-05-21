@@ -508,7 +508,7 @@ def get_photometric_aug(p=0.5):
             val_shift_limit=10,
             p=0.3
         ),
-    ], additional_targets={'image_lr': 'image'}) # This tells it to sync with a second image
+    ], additional_targets={'image_lr': 'image'}, is_check_shapes=False)  # LR and HR have different spatial sizes
 
 
 '''

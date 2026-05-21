@@ -54,7 +54,7 @@ CONFIG: dict = {
     # ── Paths ─────────────────────────────────────────────────────────────────
     "HR_IMAGE_PATH": "Lahore Raw\Lahore HR\IMG_01_PNEO3_PMS-FS\IMG_PNEO3_STD_202601250555400_PMS-FS_ORT_1e224074-3a2a-4f29-cfe4-ab0a484fbd47_RGB_R1C1.JP2",
     "LR_IMAGE_PATH": "Lahore Raw\Lahore LR\IMG_PHR1A_PMS_001\IMG_PHR1A_PMS_202602130556014_ORT_38a71b19-2781-4146-c1f3-561512adaf94_R1C1.JP2",
-    "OUTPUT_DIR":    "Lahore_4",
+    "OUTPUT_DIR":    "Lahore_no_tile_overlap",
 
 # ── Band Mappings (already correct for these sensors) ──────────────────
     "HR_RGB_BANDS": [1, 2, 3],   # Red=1, Green=2, Blue=3 (Neo)
@@ -64,7 +64,7 @@ CONFIG: dict = {
     "SCALE_FACTOR":   2,          # fixed for ×2 SR (standard)
     "HR_PATCH_SIZE":  256,        # SEN2VENµS standard; ideal for most SR backbones
     "LR_PATCH_SIZE":  128,        # auto-derived — do NOT change
-    "STRIDE":         64,         # ← CHANGED: 75 % overlap → ~4× more patches than default 128
+    "STRIDE":         256,         # ← CHANGED: 75 % overlap → ~4× more patches than default 128
 
     # ── Radiometric parameters (8-bit output) ──────────────────────────────
     "NODATA_VALUE":     0,
@@ -94,7 +94,7 @@ CONFIG: dict = {
 
     # ── Post-alignment quality gates — stricter for clean training pairs ─────
     "MIN_ECC_SCORE": 0.78,    # ← raised from 0.70 (excellent local alignment)
-    "MIN_SSIM":      0.72,    # ← raised from 0.60 (strong structural match)
+    "MIN_SSIM":      0.60,    # ← raised from 0.60 (strong structural match)
 
     # ── Radiometric Regression (sen2venus §2.5.4 style) ─────────────────────
     "RADIOMETRIC_BLOCK_SIZE":      256,

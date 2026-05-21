@@ -43,8 +43,8 @@ except ImportError:
 # ===========================================================================
 CONFIG = {
     # Input/Output
-    "hr_dir": "E:/FAST/SUPARCO/KAIR/ucmerced/UCMerced_LandUse/hr",
-    "lr_dir": "E:/FAST/SUPARCO/KAIR/ucmerced/UCMerced_LandUse/lr_esrgan",
+    "hr_dir": "E:/FAST/SUPARCO/KAIR/testsets/Set14/hr",
+    "lr_dir": "E:/FAST/SUPARCO/KAIR/testsets/Set14/lr",
     "params_path": "best_degradation.json",
 
     # Processing
@@ -56,7 +56,6 @@ CONFIG = {
     # Output control
     "save_ext": None,            # None keeps original extension, e.g. ".png"
 }
-
 
 VALID_EXTS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
 
