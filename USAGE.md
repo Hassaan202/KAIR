@@ -441,7 +441,7 @@ python main_test_swinir_config.py
 
 ```python
 CONFIG = {
-    "model_path": "superresolution/<task>/models/<iter>_G.pth",
+    "model_path": "superresolution/<task>/models/<iter>_E.pth",
     "lr_dir": "testsets/my_test/lr",
     "hr_dir": "testsets/my_test/hr",
     "sr_dir": "testsets/my_test/sr",
