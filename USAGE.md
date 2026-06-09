@@ -95,7 +95,7 @@ python pleaides_preprocessing/pipeline3.py
 
 **Configuration:** Edit the `CONFIG` dict at the top of `pipeline3.py`, or place a `config.json` file next to the script to override keys.
 
-**Key config keys:**
+**JSON Configuration:**
 
 | Key | Description |
 |-----|-------------|
@@ -103,6 +103,9 @@ python pleaides_preprocessing/pipeline3.py
 | `LR_IMAGE_PATH` | Path to the LR GeoTIFF/JP2 |
 | `OUTPUT_DIR` | Output directory; patches saved to `<OUTPUT_DIR>/hr/` and `<OUTPUT_DIR>/lr/` |
 | `HR_RGB_BANDS`, `LR_RGB_BANDS` | Band indices to use as RGB (e.g. `[2, 1, 0]`) |
+| `SCALE_FACTOR` | Upscaling factor (usually `2`) |
+| `HR_PATCH_SIZE` | Dimensions of HR patches (e.g., `256`) |
+| `STRIDE` | Stride for patch extraction (controls overlap) |
 | `COREG_A_ENABLED` | Enable Stage A coregistration (ORB + RANSAC homography) |
 | `COREG_B_ENABLED` | Enable Stage B coregistration (phase cross-correlation, sub-pixel) |
 | `COREG_C_ENABLED` | Enable Stage C coregistration (ECC, per-patch local refinement) |
@@ -132,6 +135,19 @@ python pleaides_preprocessing/verify_coregistration.py
 python pleaides_preprocessing/verify_coregistration.py --output Lahore_4 --n 50
 ```
 
+**JSON Configuration:**
+
+| Key | Description |
+|-----|-------------|
+| `OUTPUT_DIR` | Output directory from `pipeline3.py` to verify |
+| `N_SAMPLES` | Number of patches to analyze (null = all) |
+| `SAMPLE_SEED` | Random seed for reproducible patch selection |
+| `BLINKER_FPS` | Frames per second for the blinker GIF |
+| `CHECKER_GRID` | NxN checkerboard grid divisions |
+| `DIFF_CMAP` | Matplotlib colormap for difference maps |
+| `SSIM_CMAP` | Matplotlib colormap for SSIM heatmaps |
+| `DISPLAY_SIZE` | Pixel size for saved diagnostic images (upscale LR for clarity) |
+
 **Outputs:** Under `<OUTPUT_DIR>/verification/`:
 - `blinker/` — GIFs toggling HR_down ↔ LR (spot sub-pixel shifts)
 - `diff/` — Per-patch absolute difference heatmaps (MAE, RMSE, p95, max)
@@ -154,6 +170,20 @@ Uses Optuna to learn a satellite-aware degradation model (blur, resize, noise) t
 ```bash
 python pleaides_preprocessing/esrgan_mapping_optuna.py
 ```
+
+**JSON Configuration:**
+
+| Key | Description |
+|-----|-------------|
+| `hr_dir` | Path to source HR patches |
+| `lr_dir` | Path to co-registered real LR patches |
+| `out_config` | Destination path for learned parameters (default: `best_degradation.json`) |
+| `sf` | Scale factor (downsampling ratio) |
+| `patch_size` | Spatial size of patches for evaluation |
+| `n_patches` | Total quantity of patches to load for the study |
+| `n_trials` | Number of Optuna trials to run |
+| `n_eval_samples` | Number of patches to evaluate per trial |
+| `seed` | Random seed for reproducibility |
 
 Configure paired HR/LR folder paths at the top of the file. The output `best_degradation.json` contains `degradation_params` and `meta`.
 
@@ -470,6 +500,8 @@ MODEL_CONFIG = {
 
 These must exactly match the architecture used during training.
 
+> **Tip:** Recommended architecture settings can be retrieved from the `train.log` file (or `options/train.json`) located in the training output directory: `super-resolution/taskname/train.log` as mentioned in the [Output Structure](#25-output-structure) section above.
+
 **File matching:** LR and HR images are matched by filename stem. Files with no common stem are skipped. SR outputs are saved as `<name>_SwinIR.png` in `sr_dir`.
 
 **Tile mode:** Set `"tile"` to an integer (multiple of `window_size`) to run tiled inference on large images that don't fit in GPU memory. `tile_overlap` controls overlap to reduce tile boundary artefacts.
@@ -559,3 +591,7 @@ CONFIG = {
 Set `sr_iteration` to a specific iteration number string to select an exact checkpoint's output, or leave empty to auto-select the highest iteration available.
 
 **Output:** One PNG per patch saved to `output_dir`, named `<patch_name><output_suffix>.png`.
+
+
+
+
