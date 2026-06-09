@@ -157,8 +157,6 @@ python pleaides_preprocessing/esrgan_mapping_optuna.py
 
 Configure paired HR/LR folder paths at the top of the file. The output `best_degradation.json` contains `degradation_params` and `meta`.
 
----
-
 ### 1.4 `pleaides_preprocessing/apply_esrgan_degradation.py` — Apply Learned Degradation
 
 Applies `best_degradation.json` parameters to a directory of HR images to create synthetic LR images for ESRGAN/Real-ESRGAN-style training.
