@@ -1,0 +1,183 @@
+"""
+config_service.py
+=================
+Reads and writes KAIR-style JSON configs (strips // comments).
+Scans superresolution/ for training runs and model checkpoints.
+"""
+import json
+import os
+import re
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+
+# ── Project root (KAIR root, two levels up from gui/backend) ──────────────────
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+SUPERRESOLUTION_DIR = PROJECT_ROOT / "superresolution"
+OPTIONS_SWINIR_DIR = PROJECT_ROOT / "options" / "swinir"
+
+
+def _strip_comments(text: str) -> str:
+    """Remove // comments from KAIR-style JSON."""
+    # Remove // comments that are not inside strings
+    result = []
+    i = 0
+    in_string = False
+    while i < len(text):
+        c = text[i]
+        if c == '"' and (i == 0 or text[i - 1] != "\\"):
+            in_string = not in_string
+        if not in_string and c == "/" and i + 1 < len(text) and text[i + 1] == "/":
+            # skip to end of line
+            while i < len(text) and text[i] != "\n":
+                i += 1
+            continue
+        result.append(c)
+        i += 1
+    return "".join(result)
+
+
+def load_kair_json(path: Path) -> Dict[str, Any]:
+    """Load a KAIR JSON file (with // comments) and return a dict."""
+    text = path.read_text(encoding="utf-8")
+    clean = _strip_comments(text)
+    return json.loads(clean)
+
+
+def save_json(data: Dict[str, Any], path: Path) -> None:
+    """Write a dict as standard JSON (no comments)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+# ── SwinIR config files ───────────────────────────────────────────────────────
+
+def list_swinir_configs() -> List[Dict[str, str]]:
+    """Return all .json config files in options/swinir/."""
+    configs = []
+    if OPTIONS_SWINIR_DIR.is_dir():
+        for p in sorted(OPTIONS_SWINIR_DIR.glob("*.json")):
+            configs.append({"name": p.name, "path": str(p.relative_to(PROJECT_ROOT))})
+    return configs
+
+
+def load_swinir_config(config_name: str) -> Dict[str, Any]:
+    """Load a named swinir config file."""
+    path = OPTIONS_SWINIR_DIR / config_name
+    if not path.exists():
+        raise FileNotFoundError(f"Config not found: {path}")
+    return load_kair_json(path)
+
+
+# ── Training runs ─────────────────────────────────────────────────────────────
+
+def _find_latest_checkpoint(models_dir: Path) -> Tuple[Optional[int], Optional[str]]:
+    """
+    Scan a models/ directory for the highest-numbered *_E.pth (EMA weights).
+    Falls back to *_G.pth if no E weights found.
+    Returns (iteration, relative_path) or (None, None).
+    """
+    best_iter = -1
+    best_path = None
+
+    for suffix in ("_E.pth", "_G.pth"):
+        for p in models_dir.glob(f"*{suffix}"):
+            stem = p.stem  # e.g. "175000_E"
+            parts = stem.split("_")
+            try:
+                iteration = int(parts[0])
+            except (ValueError, IndexError):
+                continue
+            if iteration > best_iter:
+                best_iter = iteration
+                best_path = p
+
+    if best_path is None:
+        return None, None
+    return best_iter, str(best_path.relative_to(PROJECT_ROOT))
+
+
+def list_training_runs() -> List[Dict[str, Any]]:
+    """
+    Scan superresolution/ for task directories and return metadata about each.
+    """
+    runs = []
+    if not SUPERRESOLUTION_DIR.is_dir():
+        return runs
+
+    for task_dir in sorted(SUPERRESOLUTION_DIR.iterdir()):
+        if not task_dir.is_dir():
+            continue
+
+        models_dir = task_dir / "models"
+        log_dir = task_dir / "log"
+        options_dir = task_dir / "options"
+
+        latest_iter, latest_model = _find_latest_checkpoint(models_dir) if models_dir.is_dir() else (None, None)
+
+        # Try to get config type (gan vs plain)
+        config_type = "unknown"
+        train_config_path = options_dir / "train.json"
+        if train_config_path.exists():
+            try:
+                cfg = load_kair_json(train_config_path)
+                config_type = cfg.get("model", "plain")
+            except Exception:
+                pass
+
+        runs.append({
+            "task_name": task_dir.name,
+            "latest_iteration": latest_iter,
+            "latest_model_path": latest_model,
+            "config_type": config_type,
+            "has_log": (log_dir / "train.log").exists(),
+        })
+
+    return runs
+
+
+def get_latest_model_info(task_name: str) -> Dict[str, Any]:
+    """
+    Return the latest model path and autofilled MODEL_CONFIG for a task.
+    Parses netG block from options/train.json.
+    """
+    task_dir = SUPERRESOLUTION_DIR / task_name
+    if not task_dir.is_dir():
+        raise FileNotFoundError(f"Task directory not found: {task_dir}")
+
+    models_dir = task_dir / "models"
+    latest_iter, latest_path = _find_latest_checkpoint(models_dir)
+
+    if latest_path is None:
+        raise FileNotFoundError(f"No model checkpoints found in {models_dir}")
+
+    # Parse netG from saved train.json
+    model_config = {}
+    train_json = task_dir / "options" / "train.json"
+    if train_json.exists():
+        try:
+            cfg = load_kair_json(train_json)
+            net_g = cfg.get("netG", {})
+            model_config = {
+                "upscale": net_g.get("upscale", cfg.get("scale", 2)),
+                "in_chans": net_g.get("in_chans", cfg.get("n_channels", 3)),
+                "img_size": net_g.get("img_size", 128),
+                "window_size": net_g.get("window_size", 8),
+                "img_range": net_g.get("img_range", 1.0),
+                "depths": net_g.get("depths", [6, 6, 6, 6, 6, 6]),
+                "embed_dim": net_g.get("embed_dim", 180),
+                "num_heads": net_g.get("num_heads", [6, 6, 6, 6, 6, 6]),
+                "mlp_ratio": net_g.get("mlp_ratio", 2),
+                "upsampler": net_g.get("upsampler", "pixelshuffle"),
+                "resi_connection": net_g.get("resi_connection", "1conv"),
+            }
+        except Exception:
+            pass
+
+    return {
+        "task_name": task_name,
+        "latest_iteration": latest_iter,
+        "model_path": latest_path,
+        "model_config": model_config,
+    }

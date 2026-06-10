@@ -1,0 +1,356 @@
+import { useEffect, useState } from 'react'
+import {
+  listTrainingConfigs, getTrainingConfig, listTrainingRuns,
+  startTraining, stopTraining
+} from '../api/client'
+import LogConsole from '../components/LogConsole'
+import {
+  SelectField, TextField, NumberField, BoolToggle,
+  ArrayEditor, CollapsibleSection
+} from '../components/FormFields'
+
+const SCALE_OPTIONS = [
+  { value: 2, label: '×2' }, { value: 3, label: '×3' },
+  { value: 4, label: '×4' }, { value: 8, label: '×8' },
+]
+const LOSS_TYPES = ['l1', 'l2', 'l2sum', 'ssim', 'charbonnier']
+const UPSAMPLER_OPTIONS = ['pixelshuffle', 'pixelshuffledirect', 'nearest+conv']
+const RESI_OPTIONS = ['1conv', '3conv']
+const GAN_TYPES = ['gan', 'ragan', 'lsgan', 'wgan', 'softplusgan']
+const DEG_TYPES = ['bsrgan', 'bsrgan_plus', 'real_esrgan', 'satellite']
+
+const DEFAULT_PSNR = {
+  training_type: 'psnr',
+  task: 'swinir_sr_x2_psnr',
+  scale: 2, n_channels: 3, gpu_ids: [0],
+  pretrained_netG: null, pretrained_netE: null,
+  train_dataset: {
+    dataroot_H: 'trainsets/trainH', dataroot_L: null,
+    H_size: 256, dataloader_shuffle: true,
+    dataloader_num_workers: 4, dataloader_batch_size: 2,
+    dataset_type: 'sr', use_photometric_aug: false,
+    degradation_type: null, shuffle_prob: null, lq_patchsize: null, use_sharp: null,
+  },
+  test_dataset: {
+    dataroot_H: 'testsets/Set5/HR', dataroot_L: 'testsets/Set5/LR_bicubic/X2',
+    dataset_type: 'sr',
+  },
+  net_g: {
+    net_type: 'swinir', upscale: 2, in_chans: 3, img_size: 128,
+    window_size: 8, img_range: 1.0, depths: [6,6,6,6,6,6],
+    embed_dim: 180, num_heads: [6,6,6,6,6,6],
+    mlp_ratio: 2, upsampler: 'pixelshuffle', resi_connection: '1conv', init_type: 'default',
+  },
+  train_params: {
+    G_lossfn_type: 'l1', G_lossfn_weight: 1.0, E_decay: 0.999,
+    G_optimizer_type: 'adam', G_optimizer_lr: 1e-4, G_optimizer_wd: 0,
+    G_optimizer_reuse: true, G_scheduler_type: 'MultiStepLR',
+    G_scheduler_milestones: [300000,400000,500000,600000,700000],
+    G_scheduler_gamma: 0.5, G_param_strict: true, E_param_strict: true,
+    checkpoint_test: 10000, checkpoint_save: 10000, checkpoint_print: 1000,
+  },
+  gan_extras: null,
+}
+
+const DEFAULT_GAN = {
+  ...DEFAULT_PSNR,
+  training_type: 'gan',
+  task: 'swinir_sr_x2_gan',
+  train_dataset: {
+    ...DEFAULT_PSNR.train_dataset,
+    dataset_type: 'sr',
+    degradation_type: 'bsrgan',
+    shuffle_prob: 0.1, lq_patchsize: 128, use_sharp: true,
+  },
+  train_params: {
+    ...DEFAULT_PSNR.train_params,
+    G_optimizer_lr: 5e-5,
+    G_scheduler_milestones: [100000,200000,300000,400000,500000],
+    checkpoint_test: 5000, checkpoint_save: 5000,
+  },
+  gan_extras: {
+    F_lossfn_type: 'l1', F_lossfn_weight: 1.0,
+    F_feature_layer: [2,7,16,25,34], F_weights: [0.1,0.1,1.0,1.0,1.0],
+    F_use_input_norm: true, F_use_range_norm: false,
+    gan_type: 'gan', D_lossfn_weight: 0.1,
+    D_optimizer_lr: 5e-5, D_optimizer_wd: 0,
+    D_scheduler_milestones: [100000,200000,300000,400000,500000],
+    D_scheduler_gamma: 0.5, D_init_iters: 0, G_optimizer_lr: 5e-5,
+  },
+}
+
+function deepSet(obj, path, value) {
+  const keys = path.split('.')
+  const next = { ...obj }
+  let cur = next
+  for (let i = 0; i < keys.length - 1; i++) {
+    cur[keys[i]] = { ...cur[keys[i]] }
+    cur = cur[keys[i]]
+  }
+  cur[keys[keys.length - 1]] = value
+  return next
+}
+
+export default function Training() {
+  const [mode, setMode] = useState('psnr')
+  const [form, setForm] = useState(DEFAULT_PSNR)
+  const [configs, setConfigs] = useState([])
+  const [runs, setRuns] = useState([])
+  const [jobId, setJobId] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const set = (path, value) => setForm((prev) => deepSet(prev, path, value))
+
+  useEffect(() => {
+    listTrainingConfigs().then((r) => setConfigs(r.data)).catch(() => {})
+    listTrainingRuns().then((r) => setRuns(r.data)).catch(() => {})
+  }, [jobId])
+
+  useEffect(() => {
+    setForm(mode === 'gan' ? DEFAULT_GAN : DEFAULT_PSNR)
+  }, [mode])
+
+  const loadConfig = async (name) => {
+    try {
+      const r = await getTrainingConfig(name)
+      const cfg = r.data
+      const isGan = cfg.model === 'gan'
+      setMode(isGan ? 'gan' : 'psnr')
+    } catch {}
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      const payload = { ...form, training_type: mode }
+      const r = await startTraining(payload)
+      setJobId(r.data.job_id)
+    } catch (err) {
+      setError(err.response?.data?.detail || String(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleStop = async () => {
+    if (jobId) await stopTraining(jobId).catch(() => {})
+  }
+
+  return (
+    <div>
+      <div className="topbar">
+        <div className="topbar-title">
+          <h2>Training</h2>
+          <span className="crumb">/ swinir / configure</span>
+        </div>
+      </div>
+      
+      <div className="content">
+        <div className="eyebrow rise">Configuration</div>
+        <h1 className="editorial rise" style={{ fontSize: 32, marginBottom: 10 }}>Configure and launch SwinIR model training</h1>
+        <p className="rise" style={{ color: 'var(--ink-2)', marginBottom: 30, maxWidth: 600 }}>
+          Set up hyperparameters, dataset paths, and architecture settings for PSNR or GAN-based super-resolution training.
+        </p>
+
+        <div className="module-grid rise" style={{ animationDelay: '100ms' }}>
+          {/* ─── Left: Config form ─────────────────────────── */}
+          <div className="col">
+            {/* Mode selector */}
+            <div className="mode-tabs">
+              <button className={`mode-tab ${mode === 'psnr' ? 'active' : ''}`} onClick={() => setMode('psnr')}>
+                PSNR Training
+              </button>
+              <button className={`mode-tab ${mode === 'gan' ? 'active' : ''}`} onClick={() => setMode('gan')}>
+                GAN Training
+              </button>
+            </div>
+
+            {/* Load preset config */}
+            {configs.length > 0 && (
+              <div className="form-group">
+                <label>Load preset config <span className="hint">(optional — autofills scale, dataset type)</span></label>
+                <select className="text-input" onChange={(e) => e.target.value && loadConfig(e.target.value)} defaultValue="">
+                  <option value="">— choose a config file —</option>
+                  {configs.map((c) => (
+                    <option key={c.name} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit}>
+              {/* ── Basic settings ── */}
+              <CollapsibleSection title="Basic Settings" defaultOpen>
+                <TextField label="Task name" hint="used as output directory name"
+                  value={form.task} onChange={(v) => set('task', v)} />
+                <div className="grid-2">
+                  <SelectField label="Scale" value={form.scale}
+                    onChange={(v) => set('scale', parseInt(v))} options={SCALE_OPTIONS} />
+                  <SelectField label="Channels" value={form.n_channels}
+                    onChange={(v) => set('n_channels', parseInt(v))}
+                    options={[{ value: 1, label: 'Grayscale (1)' }, { value: 3, label: 'RGB (3)' }]} />
+                </div>
+              </CollapsibleSection>
+
+              {/* ── Dataset ── */}
+              <CollapsibleSection title="Dataset" defaultOpen>
+                <TextField label="HR train dir" value={form.train_dataset.dataroot_H}
+                  onChange={(v) => set('train_dataset.dataroot_H', v)} placeholder="trainsets/trainH" />
+                <TextField label="LR train dir" hint="leave blank to use bicubic downsampling"
+                  value={form.train_dataset.dataroot_L || ''}
+                  onChange={(v) => set('train_dataset.dataroot_L', v || null)} placeholder="trainsets/trainL (optional)" />
+                <TextField label="HR test dir" value={form.test_dataset.dataroot_H}
+                  onChange={(v) => set('test_dataset.dataroot_H', v)} />
+                <TextField label="LR test dir" value={form.test_dataset.dataroot_L || ''}
+                  onChange={(v) => set('test_dataset.dataroot_L', v || null)} placeholder="(optional)" />
+                <div className="grid-3">
+                  <NumberField label="HR patch size" value={form.train_dataset.H_size}
+                    onChange={(v) => set('train_dataset.H_size', v)} min={64} step={32} />
+                  <NumberField label="Batch size" value={form.train_dataset.dataloader_batch_size}
+                    onChange={(v) => set('train_dataset.dataloader_batch_size', v)} min={1} />
+                  <NumberField label="Workers" value={form.train_dataset.dataloader_num_workers}
+                    onChange={(v) => set('train_dataset.dataloader_num_workers', v)} min={0} />
+                </div>
+                {mode === 'gan' && (
+                  <>
+                    <SelectField label="Degradation type" value={form.train_dataset.degradation_type || 'bsrgan'}
+                      onChange={(v) => set('train_dataset.degradation_type', v)} options={DEG_TYPES} />
+                    <div className="grid-2">
+                      <NumberField label="LQ patch size" value={form.train_dataset.lq_patchsize || 128}
+                        onChange={(v) => set('train_dataset.lq_patchsize', v)} min={32} step={16} />
+                      <NumberField label="Shuffle prob" value={form.train_dataset.shuffle_prob || 0.1}
+                        onChange={(v) => set('train_dataset.shuffle_prob', v)} min={0} max={1} step={0.05} />
+                    </div>
+                    <BoolToggle label="Use sharp (USM sharpening on HR)"
+                      value={!!form.train_dataset.use_sharp}
+                      onChange={(v) => set('train_dataset.use_sharp', v)} />
+                  </>
+                )}
+              </CollapsibleSection>
+
+              {/* ── Pre-trained model ── */}
+              <CollapsibleSection title="Pre-trained Model" defaultOpen={false}>
+                <TextField label="Pretrained netG path" hint="null = train from scratch"
+                  value={form.pretrained_netG || ''}
+                  onChange={(v) => set('pretrained_netG', v || null)} placeholder="model_zoo/..." />
+                {mode === 'gan' && (
+                  <>
+                    <TextField label="Pretrained netD path" value={form.pretrained_netD || ''}
+                      onChange={(v) => set('pretrained_netD', v || null)} placeholder="(optional)" />
+                    <TextField label="Pretrained netE path" value={form.pretrained_netE_gan || ''}
+                      onChange={(v) => set('pretrained_netE_gan', v || null)} placeholder="(optional)" />
+                  </>
+                )}
+              </CollapsibleSection>
+
+              {/* ── Network architecture ── */}
+              <CollapsibleSection title="Network Architecture" defaultOpen={false}>
+                <div className="grid-2">
+                  <NumberField label="Embed dim" hint="divisible by all num_heads"
+                    value={form.net_g.embed_dim} onChange={(v) => set('net_g.embed_dim', v)} min={60} step={12} />
+                  <NumberField label="MLP ratio" value={form.net_g.mlp_ratio}
+                    onChange={(v) => set('net_g.mlp_ratio', v)} min={1} />
+                </div>
+                <div className="grid-2">
+                  <SelectField label="Upsampler" value={form.net_g.upsampler}
+                    onChange={(v) => set('net_g.upsampler', v)} options={UPSAMPLER_OPTIONS} />
+                  <SelectField label="Resi connection" value={form.net_g.resi_connection}
+                    onChange={(v) => set('net_g.resi_connection', v)} options={RESI_OPTIONS} />
+                </div>
+                <ArrayEditor label="Depths (transformer blocks per stage)"
+                  value={form.net_g.depths} onChange={(v) => set('net_g.depths', v)} />
+                <ArrayEditor label="Num heads (must match depths length)"
+                  value={form.net_g.num_heads} onChange={(v) => set('net_g.num_heads', v)} />
+              </CollapsibleSection>
+
+              {/* ── Training hyperparams ── */}
+              <CollapsibleSection title="Training Hyperparameters" defaultOpen={false}>
+                <div className="grid-2">
+                  <SelectField label="Loss function" value={form.train_params.G_lossfn_type}
+                    onChange={(v) => set('train_params.G_lossfn_type', v)} options={LOSS_TYPES} />
+                  <NumberField label="Learning rate (G)" value={form.train_params.G_optimizer_lr}
+                    onChange={(v) => set('train_params.G_optimizer_lr', v)} step={1e-5} />
+                </div>
+                <div className="grid-3">
+                  <NumberField label="EMA decay" value={form.train_params.E_decay}
+                    onChange={(v) => set('train_params.E_decay', v)} min={0} max={1} step={0.001} />
+                  <NumberField label="LR gamma" value={form.train_params.G_scheduler_gamma}
+                    onChange={(v) => set('train_params.G_scheduler_gamma', v)} min={0} max={1} step={0.1} />
+                  <NumberField label="Ckpt print" value={form.train_params.checkpoint_print}
+                    onChange={(v) => set('train_params.checkpoint_print', v)} min={100} step={100} />
+                </div>
+                <div className="grid-2">
+                  <NumberField label="Ckpt save" value={form.train_params.checkpoint_save}
+                    onChange={(v) => set('train_params.checkpoint_save', v)} min={1000} step={1000} />
+                  <NumberField label="Ckpt test" value={form.train_params.checkpoint_test}
+                    onChange={(v) => set('train_params.checkpoint_test', v)} min={1000} step={1000} />
+                </div>
+                <ArrayEditor label="LR milestones (iterations)"
+                  value={form.train_params.G_scheduler_milestones}
+                  onChange={(v) => set('train_params.G_scheduler_milestones', v)} />
+              </CollapsibleSection>
+
+              {/* ── GAN-only extras ── */}
+              {mode === 'gan' && form.gan_extras && (
+                <CollapsibleSection title="GAN / Discriminator Settings" defaultOpen={false}>
+                  <div className="grid-2">
+                    <SelectField label="GAN type" value={form.gan_extras.gan_type}
+                      onChange={(v) => set('gan_extras.gan_type', v)} options={GAN_TYPES} />
+                    <SelectField label="Perceptual loss" value={form.gan_extras.F_lossfn_type}
+                      onChange={(v) => set('gan_extras.F_lossfn_type', v)} options={['l1', 'l2']} />
+                  </div>
+                  <div className="grid-2">
+                    <NumberField label="D loss weight" value={form.gan_extras.D_lossfn_weight}
+                      onChange={(v) => set('gan_extras.D_lossfn_weight', v)} step={0.01} />
+                    <NumberField label="D LR" value={form.gan_extras.D_optimizer_lr}
+                      onChange={(v) => set('gan_extras.D_optimizer_lr', v)} step={1e-6} />
+                  </div>
+                  <ArrayEditor label="D LR milestones"
+                    value={form.gan_extras.D_scheduler_milestones}
+                    onChange={(v) => set('gan_extras.D_scheduler_milestones', v)} />
+                </CollapsibleSection>
+              )}
+
+              {error && (
+                <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>
+              )}
+
+              <button type="submit" className="btn btn-primary full-width" disabled={loading} style={{ marginTop: 8 }}>
+                {loading ? 'Starting…' : `▶ Start ${mode.toUpperCase()} Training`}
+              </button>
+            </form>
+          </div>
+
+          {/* ─── Right: Recent runs + log ─────────────────── */}
+          <div className="col">
+            <div className="card">
+              <div className="card-title">Recent Training Runs</div>
+              {runs.length === 0 ? (
+                <p className="text-muted text-sm">No training runs found in superresolution/</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {runs.map((r) => (
+                    <div key={r.task_name} className="ds-row" style={{ padding: '10px 14px' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--ink)' }}>{r.task_name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
+                          {r.config_type} · iter {r.latest_iteration ?? '—'} ·{' '}
+                          {r.has_log ? 'log available' : 'no log'}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            {jobId && <LogConsole domain="training" jobId={jobId} onStop={handleStop} />}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
