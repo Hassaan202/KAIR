@@ -238,11 +238,13 @@ export default function Inference() {
             <div className="card">
               <div className="card-title">Metrics Evaluation</div>
               <p className="text-muted text-sm" style={{ lineHeight: 1.5 }}>
-                Inference computes PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER —
-                averaged across all test images.
+                Inference computes 8 metrics — PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER —
+                for both the SR output and the bicubic baseline, then reports ΔPSNR and all other
+                deltas (SR − LR bicubic) to show the model's improvement over simple upsampling.
               </p>
               <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 12, padding: 8, background: 'var(--bg)', borderRadius: 'var(--radius-sm)' }}>
-                Results are saved to: <br/>log_dir/&lt;sr_dir_name&gt;.log
+                SR rows · LR rows · Delta rows — averaged across all test images.<br/>
+                Results saved to: log_dir/&lt;sr_dir_name&gt;.log
               </div>
             </div>
             {jobId && <LogConsole domain="inference" jobId={jobId} onStop={handleStop} />}

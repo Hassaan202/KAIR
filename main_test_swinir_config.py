@@ -170,6 +170,16 @@ def calculate_metrics(sr: np.ndarray, hr: np.ndarray, border: int):
     }
 
 
+# Metrics where lower is better — negative delta means the model improved over bicubic.
+LOWER_IS_BETTER = {"sam", "rmse"}
+
+
+def get_bicubic_baseline(lr_image: np.ndarray, target_height: int, target_width: int) -> np.ndarray:
+    """Bicubic-upsample LR to HR dimensions, returning BGR uint8 for metric comparison."""
+    img = lr_image[:, :, :3] if lr_image.ndim == 3 else np.stack([lr_image] * 3, axis=2)
+    return cv2.resize(img.astype(np.uint8), (target_width, target_height), interpolation=cv2.INTER_CUBIC)
+
+
 def main():
     lr_dir = Path(CONFIG["lr_dir"])
     hr_dir = Path(CONFIG["hr_dir"])
@@ -237,19 +247,42 @@ def main():
         else:
             hr_image = np.squeeze(hr_image[: height * scale, : width * scale, ...])
 
-        metrics = calculate_metrics(sr_image, hr_image, border=border)
-        for key, value in metrics.items():
-            totals[key] += float(value)
+        bicubic_image = get_bicubic_baseline(lr_image, height * scale, width * scale)
+
+        sr_metrics = calculate_metrics(sr_image, hr_image, border=border)
+        lr_metrics = calculate_metrics(bicubic_image, hr_image, border=border)
+        deltas = {k: sr_metrics[k] - lr_metrics[k] for k in METRIC_NAMES}
+
+        for key in METRIC_NAMES:
+            totals[key] += float(sr_metrics[key])
+            totals[f"lr_{key}"] += float(lr_metrics[key])
         processed += 1
 
-        metric_text = "; ".join(f"{key.upper()}: {value:.4f}" for key, value in metrics.items())
-        logger.info(f"{index:04d} {name:30s} {metric_text}")
+        sr_text = "  SR:    " + "  ".join(f"{k.upper()} {sr_metrics[k]:.4f}" for k in METRIC_NAMES)
+        lr_text = "  LR:    " + "  ".join(f"{k.upper()} {lr_metrics[k]:.4f}" for k in METRIC_NAMES)
+        delta_text = "  Delta: " + "  ".join(f"Δ{k.upper()} {deltas[k]:+.4f}" for k in METRIC_NAMES)
+        logger.info(f"{index:04d} {name}")
+        logger.info(sr_text)
+        logger.info(lr_text)
+        logger.info(delta_text)
 
     logger.info("\n" + "=" * 80)
     logger.info(f"SR folder: {sr_dir}")
     logger.info(f"Total images: {processed}")
+
+    logger.info("\nAverage SR metrics:")
     for key in METRIC_NAMES:
-        logger.info(f"Average {key.upper()}: {totals[key] / processed:.4f}")
+        logger.info(f"  {key.upper()}: {totals[key] / processed:.4f}")
+
+    logger.info("\nAverage LR (bicubic baseline) metrics:")
+    for key in METRIC_NAMES:
+        logger.info(f"  {key.upper()}: {totals[f'lr_{key}'] / processed:.4f}")
+
+    logger.info("\nAverage Delta (SR - LR bicubic)  [SAM/RMSE: negative = improvement]:")
+    for key in METRIC_NAMES:
+        avg_delta = (totals[key] - totals[f"lr_{key}"]) / processed
+        direction = "↓ better" if key in LOWER_IS_BETTER else "↑ better"
+        logger.info(f"  Δ{key.upper()}: {avg_delta:+.4f}  ({direction})")
 
 
 if __name__ == "__main__":

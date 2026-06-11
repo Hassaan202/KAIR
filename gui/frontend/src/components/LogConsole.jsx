@@ -7,6 +7,9 @@ function classifyLine(line) {
   if (l.includes('warn')) return 'lv-warn'
   if (l.includes('complete') || l.includes('saved') || l.includes('done')) return 'lv-ok'
   if (l.startsWith('<') || l.includes('iter:')) return 'lv-step'
+  if (line.includes('Delta:') || line.includes('average delta') || line.includes('Δ')) return 'lv-delta'
+  if (line.trim().startsWith('LR:') || line.includes('average lr')) return 'lv-lr'
+  if (line.trim().startsWith('SR:') || line.includes('average sr')) return 'lv-sr'
   return 'lv-info'
 }
 
