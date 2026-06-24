@@ -7,6 +7,8 @@ Streams stdout/stderr as Server-Sent Events.
 import asyncio
 import os
 import signal
+import subprocess
+import traceback
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
@@ -28,18 +30,19 @@ class Job:
     cmd: list
     cwd: str
     status: JobStatus = JobStatus.PENDING
-    process: Optional[asyncio.subprocess.Process] = None
+    process: Optional[subprocess.Popen] = None
     logs: Deque[str] = field(default_factory=lambda: deque(maxlen=5000))
     return_code: Optional[int] = None
+    output_dir: Optional[str] = None  # set for jobs that write preview images (see preprocessing.py)
 
 
 # Global in-memory job store
 _jobs: Dict[str, Job] = {}
 
 
-def create_job(cmd: list, cwd: str) -> str:
+def create_job(cmd: list, cwd: str, output_dir: Optional[str] = None) -> str:
     job_id = str(uuid.uuid4())
-    _jobs[job_id] = Job(job_id=job_id, cmd=cmd, cwd=cwd)
+    _jobs[job_id] = Job(job_id=job_id, cmd=cmd, cwd=cwd, output_dir=output_dir)
     return job_id
 
 
@@ -60,7 +63,12 @@ def list_jobs() -> list:
 
 
 async def launch_job(job_id: str) -> None:
-    """Launch the subprocess for a given job and stream its output into job.logs."""
+    """Launch the subprocess for a given job and stream its output into job.logs.
+
+    Uses subprocess.Popen + asyncio.to_thread so it works on Windows where
+    asyncio.create_subprocess_exec requires ProactorEventLoop (not available
+    when uvicorn uses SelectorEventLoop).
+    """
     job = _jobs.get(job_id)
     if not job:
         raise ValueError(f"Job {job_id} not found")
@@ -69,27 +77,26 @@ async def launch_job(job_id: str) -> None:
     env = {**os.environ}
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *job.cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
+        proc = subprocess.Popen(
+            job.cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             cwd=job.cwd,
             env=env,
         )
         job.process = proc
 
-        # Stream lines into the deque
-        assert proc.stdout is not None
-        async for raw_line in proc.stdout:
-            line = raw_line.decode("utf-8", errors="replace").rstrip()
-            job.logs.append(line)
+        def _stream_output() -> int:
+            assert proc.stdout is not None, "stdout pipe was not created"
+            for raw_line in proc.stdout:
+                line = raw_line.decode("utf-8", errors="replace").rstrip()
+                job.logs.append(line)
+            proc.wait()
+            return proc.returncode or 0
 
-        await proc.wait()
-        job.return_code = proc.returncode
-        if proc.returncode == 0:
-            job.status = JobStatus.COMPLETED
-        else:
-            job.status = JobStatus.FAILED
+        return_code = await asyncio.to_thread(_stream_output)
+        job.return_code = return_code
+        job.status = JobStatus.COMPLETED if return_code == 0 else JobStatus.FAILED
 
     except asyncio.CancelledError:
         job.status = JobStatus.CANCELLED
@@ -97,7 +104,10 @@ async def launch_job(job_id: str) -> None:
             job.process.terminate()
         raise
     except Exception as exc:
-        job.logs.append(f"[job_manager] Error launching job: {exc}")
+        tb = traceback.format_exc()
+        job.logs.append(f"[job_manager] Error launching job: {type(exc).__name__}: {exc}")
+        for line in tb.splitlines():
+            job.logs.append(line)
         job.status = JobStatus.FAILED
 
 

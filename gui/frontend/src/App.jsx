@@ -4,6 +4,7 @@ import Training from './pages/Training'
 import Inference from './pages/Inference'
 import Preprocessing from './pages/Preprocessing'
 import { checkHealth } from './api/client'
+import suparcoLogo from '../assets/suparco logo.jpg'
 
 const NAV_ITEMS = [
   {
@@ -59,6 +60,7 @@ export default function App() {
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sb-brand">
+          <img src={suparcoLogo} alt="SUPARCO" className="sb-logo" />
           <h1>SUPARCO SR</h1>
         </div>
         <nav className="sb-nav">

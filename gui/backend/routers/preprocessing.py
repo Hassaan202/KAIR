@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from ..schemas.preprocessing import Pipeline3Request, RunPipelineRequest, JobResponse
 from ..services import config_service, job_manager
@@ -26,6 +26,23 @@ TMP_DIR.mkdir(parents=True, exist_ok=True)
 
 PIPELINE3_SCRIPT = PROJECT_ROOT / "pleaides_preprocessing" / "pipeline3.py"
 RUN_PIPELINE_SCRIPT = PROJECT_ROOT / "preprocessing_pipeline" / "run_pipeline.py"
+
+# Use the satellite-sr conda env which has rasterio/gdal installed.
+# Override by setting SATELLITE_SR_PYTHON env var. Falls back to sys.executable.
+def _find_pipeline_python() -> str:
+    override = os.environ.get("SATELLITE_SR_PYTHON", "")
+    if override and Path(override).is_file():
+        return override
+    candidates = [
+        Path.home() / ".conda" / "envs" / "satellite-sr" / "python.exe",
+        Path("C:/ProgramData/anaconda3/envs/satellite-sr/python.exe"),
+    ]
+    for p in candidates:
+        if p.is_file():
+            return str(p)
+    return sys.executable
+
+PIPELINE_PYTHON: str = _find_pipeline_python()
 
 
 # ── Train/Test split helper ────────────────────────────────────────────────────
@@ -92,6 +109,7 @@ def _build_pipeline3_config(req: Pipeline3Request) -> dict:
         "HR_IMAGE_PATH": req.hr_image_path,
         "LR_IMAGE_PATH": req.lr_image_path,
         "OUTPUT_DIR": req.output_dir,
+        "SUPPORTED_EXTENSIONS": req.supported_extensions,
         "HR_RGB_BANDS": req.hr_rgb_bands,
         "LR_RGB_BANDS": req.lr_rgb_bands,
         "SCALE_FACTOR": req.scale_factor,
@@ -121,6 +139,12 @@ def _build_pipeline3_config(req: Pipeline3Request) -> dict:
         "RADIOMETRIC_RMSE_THRESHOLD": req.radiometric_rmse_threshold,
         "RADIOMETRIC_N_SAMPLES": req.radiometric_n_samples,
         "RADIOMETRIC_POST_HIST_MATCH": req.radiometric_post_hist_match,
+        "DEGRADATION_ENABLED": req.degradation_enabled,
+        "DEGRADATION_TYPE": req.degradation_type,
+        "bsrgan": req.bsrgan.model_dump(),
+        "real_esrgan": req.real_esrgan.model_dump(),
+        "bsrgan_plus": req.bsrgan_plus.model_dump(),
+        "satellite": req.satellite.model_dump(),
     }
 
 
@@ -150,12 +174,12 @@ async def start_pipeline3(req: Pipeline3Request):
     config_service.save_json(cfg, config_path)
 
     cmd = [
-        sys.executable,
+        PIPELINE_PYTHON,
         str(PIPELINE3_SCRIPT),
         "--config",
         str(config_path),
     ]
-    job_id = job_manager.create_job(cmd=cmd, cwd=str(PROJECT_ROOT))
+    job_id = job_manager.create_job(cmd=cmd, cwd=str(PROJECT_ROOT), output_dir=req.output_dir)
     asyncio.create_task(_run_pipeline3_with_split(job_id, req, config_path))
 
     return JobResponse(job_id=job_id, status="pending")
@@ -219,7 +243,7 @@ async def start_run_pipeline(req: RunPipelineRequest):
     config_service.save_json(cfg, config_path)
 
     cmd = [
-        sys.executable,
+        PIPELINE_PYTHON,
         str(RUN_PIPELINE_SCRIPT),
         "--config",
         str(config_path),
@@ -237,6 +261,29 @@ async def stream_preprocessing_logs(job_id: str):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/preview/{job_id}/{filename}")
+def get_preview_image(job_id: str, filename: str):
+    """
+    Serve a preview JPEG written by pipeline3.py to OUTPUT_DIR/_previews/.
+    OUTPUT_DIR is user-supplied and can be anywhere on disk, so filename is
+    restricted to a bare name (no path separators or traversal) and the
+    resolved path is required to stay inside that job's _previews directory.
+    """
+    job = job_manager.get_job(job_id)
+    if job is None or not job.output_dir:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    base = (Path(job.output_dir) / "_previews").resolve()
+    candidate = (base / filename).resolve()
+    if not candidate.is_relative_to(base) or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Preview not found")
+
+    return FileResponse(candidate, media_type="image/jpeg")
 
 
 @router.get("/status/{job_id}")

@@ -10,24 +10,70 @@ function classifyLine(line) {
   if (line.includes('Delta:') || line.includes('average delta') || line.includes('Δ')) return 'lv-delta'
   if (line.trim().startsWith('LR:') || line.includes('average lr')) return 'lv-lr'
   if (line.trim().startsWith('SR:') || line.includes('average sr')) return 'lv-sr'
+  if (line.includes('PREVIEW_READY')) return 'lv-preview'
   return 'lv-info'
+}
+
+const PREVIEW_STAGES = [
+  { key: 'load_hr',     label: 'HR loaded' },
+  { key: 'load_lr',     label: 'LR loaded' },
+  { key: 'coreg_a',     label: 'Coreg — ORB' },
+  { key: 'coreg_b',     label: 'Coreg — Phase' },
+  { key: 'radiometric', label: 'Radiometric' },
+  { key: 'patches',     label: 'Sample patches' },
+]
+
+const PREVIEW_MARKER_RE = /PREVIEW_READY (\S+) (\S+) (\S+)/
+
+function Lightbox({ preview, label, onClose }) {
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  return (
+    <div className="lightbox-overlay" onClick={onClose}>
+      <div className="lightbox-box" onClick={(e) => e.stopPropagation()}>
+        <div className="lightbox-header">
+          <span className="lightbox-title">{label}</span>
+          <span className="lightbox-scene">{preview.scene}</span>
+          <button className="lightbox-close" onClick={onClose}>✕</button>
+        </div>
+        <img src={preview.url} alt={label} className="lightbox-img" />
+      </div>
+    </div>
+  )
 }
 
 export default function LogConsole({ domain, jobId, onStop }) {
   const [lines, setLines] = useState([])
   const [status, setStatus] = useState('pending')
+  const [previews, setPreviews] = useState({})
+  const [lightbox, setLightbox] = useState(null)
   const bottomRef = useRef(null)
   const esRef = useRef(null)
 
   useEffect(() => {
     if (!jobId) return
     setLines([])
+    setPreviews({})
     setStatus('running')
 
     esRef.current = openLogStream(
       domain,
       jobId,
-      (line) => setLines((prev) => [...prev, line]),
+      (line) => {
+        setLines((prev) => [...prev, line])
+        if (domain === 'preprocessing') {
+          const match = line.match(PREVIEW_MARKER_RE)
+          if (match) {
+            const [, filename, stage, scene] = match
+            const url = `/api/preprocessing/preview/${jobId}/${encodeURIComponent(filename)}`
+            setPreviews((prev) => ({ ...prev, [stage]: { url, scene } }))
+          }
+        }
+      },
       (s) => setStatus(s)
     )
 
@@ -41,9 +87,18 @@ export default function LogConsole({ domain, jobId, onStop }) {
   if (!jobId) return null
 
   const isLive = status === 'running' || status === 'pending'
+  const visibleStages = PREVIEW_STAGES.filter((s) => previews[s.key])
 
   return (
     <div style={{ marginTop: 20 }}>
+      {lightbox && (
+        <Lightbox
+          preview={previews[lightbox.key]}
+          label={lightbox.label}
+          onClose={() => setLightbox(null)}
+        />
+      )}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>Live Output</h3>
@@ -61,6 +116,19 @@ export default function LogConsole({ domain, jobId, onStop }) {
           )}
         </div>
       </div>
+
+      {visibleStages.length > 0 && (
+        <div className="preview-strip">
+          {visibleStages.map((s) => (
+            <button key={s.key} className="preview-thumb" onClick={() => setLightbox(s)}>
+              <img src={previews[s.key].url} alt={s.label} />
+              <span className="preview-label">{s.label}</span>
+              <span className="preview-scene">{previews[s.key].scene}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="logstream scroll">
         {lines.map((line, i) => (
           <div key={i} className={`ln ${classifyLine(line)}`}>

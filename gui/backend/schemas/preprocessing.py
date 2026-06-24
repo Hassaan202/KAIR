@@ -5,7 +5,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
-# ── Pipeline A — pipeline3.py (paired Pleiades HR+LR → patches) ───────────────
+# ── Pipeline A — pipeline3.py (Pleiades HR/LR → patches; paired or unpaired) ──
 
 class CoregStageA(BaseModel):
     enabled: bool = True
@@ -29,36 +29,7 @@ class CoregStageC(BaseModel):
     discard_on_fail: bool = True
 
 
-class Pipeline3Request(BaseModel):
-    hr_image_path: str
-    lr_image_path: str
-    output_dir: str
-    hr_rgb_bands: List[int] = Field(default_factory=lambda: [1, 2, 3])
-    lr_rgb_bands: List[int] = Field(default_factory=lambda: [3, 2, 1])
-    scale_factor: int = 2
-    hr_patch_size: int = 256
-    stride: int = 256
-    nodata_value: int = 0
-    saturated_value: int = 32767
-    clip_percentiles: List[float] = Field(default_factory=lambda: [2.0, 98.0])
-    max_nodata_fraction: float = 0.05
-    min_variance: float = 120.0
-    min_ecc_score: float = 0.78
-    min_ssim: float = 0.60
-    radiometric_block_size: int = 256
-    radiometric_rmse_threshold: float = 35.0
-    radiometric_n_samples: int = 150000
-    radiometric_post_hist_match: bool = True
-    coreg_a: CoregStageA = Field(default_factory=CoregStageA)
-    coreg_b: CoregStageB = Field(default_factory=CoregStageB)
-    coreg_c: CoregStageC = Field(default_factory=CoregStageC)
-    # Train/test split
-    train_test_split: bool = False
-    train_ratio: float = 0.8
-    test_output_dir: Optional[str] = None
-
-
-# ── Pipeline B — run_pipeline.py (HR-only degradation pipeline) ────────────────
+# ── Degradation configs — shared by Pipeline A (unpaired-HR) and Pipeline B ────
 
 class BsrganConfig(BaseModel):
     jpeg_prob: float = 0.9
@@ -127,6 +98,50 @@ class SatelliteConfig(BaseModel):
     mtf_detector_width_range: List[float] = Field(default_factory=lambda: [0.7, 1.8])
     mtf_atm_sigma_range: List[float] = Field(default_factory=lambda: [0.4, 1.8])
 
+
+class Pipeline3Request(BaseModel):
+    # hr_image_path / lr_image_path may each be a single file OR a directory.
+    # Leave lr_image_path empty for HR-only scenes (synthetic LR via degradation);
+    # leave hr_image_path empty for LR-only scenes (standalone patch extraction).
+    hr_image_path: str = ""
+    lr_image_path: str = ""
+    output_dir: str
+    supported_extensions: List[str] = Field(
+        default_factory=lambda: [".tif", ".tiff", ".jp2"]
+    )
+    hr_rgb_bands: List[int] = Field(default_factory=lambda: [1, 2, 3])
+    lr_rgb_bands: List[int] = Field(default_factory=lambda: [3, 2, 1])
+    scale_factor: int = 2
+    hr_patch_size: int = 256
+    stride: int = 256
+    nodata_value: int = 0
+    saturated_value: int = 32767
+    clip_percentiles: List[float] = Field(default_factory=lambda: [2.0, 98.0])
+    max_nodata_fraction: float = 0.05
+    min_variance: float = 120.0
+    min_ecc_score: float = 0.78
+    min_ssim: float = 0.60
+    radiometric_block_size: int = 256
+    radiometric_rmse_threshold: float = 35.0
+    radiometric_n_samples: int = 150000
+    radiometric_post_hist_match: bool = True
+    coreg_a: CoregStageA = Field(default_factory=CoregStageA)
+    coreg_b: CoregStageB = Field(default_factory=CoregStageB)
+    coreg_c: CoregStageC = Field(default_factory=CoregStageC)
+    # Unpaired-HR degradation (synthesizes LR when a scene has no matching LR)
+    degradation_enabled: bool = True
+    degradation_type: str = "satellite"  # "bsrgan"|"real_esrgan"|"bsrgan_plus"|"satellite"
+    bsrgan: BsrganConfig = Field(default_factory=BsrganConfig)
+    real_esrgan: RealEsrganConfig = Field(default_factory=RealEsrganConfig)
+    bsrgan_plus: BsrganPlusConfig = Field(default_factory=BsrganPlusConfig)
+    satellite: SatelliteConfig = Field(default_factory=SatelliteConfig)
+    # Train/test split
+    train_test_split: bool = False
+    train_ratio: float = 0.8
+    test_output_dir: Optional[str] = None
+
+
+# ── Pipeline B — run_pipeline.py (HR-only degradation pipeline) ────────────────
 
 class RunPipelineRequest(BaseModel):
     task: str = "preprocess_sr_x2"
