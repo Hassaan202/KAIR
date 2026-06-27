@@ -11,8 +11,8 @@ const RESI_OPTIONS = ['1conv', '3conv']
 
 const DEFAULT_MODEL_CONFIG = {
   upscale: 2, in_chans: 3, img_size: 128, window_size: 8,
-  img_range: 1.0, depths: [6,6,6,6,6,6], embed_dim: 180,
-  num_heads: [6,6,6,6,6,6], mlp_ratio: 2,
+  img_range: 1.0, depths: [6, 6, 6, 6, 6, 6], embed_dim: 180,
+  num_heads: [6, 6, 6, 6, 6, 6], mlp_ratio: 2,
   upsampler: 'pixelshuffle', resi_connection: '1conv',
 }
 
@@ -47,7 +47,7 @@ export default function Inference() {
   const setIC = (key, value) => setInferConfig((prev) => ({ ...prev, [key]: value }))
 
   useEffect(() => {
-    listInferenceTasks().then((r) => setTasks(r.data)).catch(() => {})
+    listInferenceTasks().then((r) => setTasks(r.data)).catch(() => { })
   }, [])
 
   useEffect(() => {
@@ -92,7 +92,7 @@ export default function Inference() {
   }
 
   const handleStop = async () => {
-    if (jobId) await stopInference(jobId).catch(() => {})
+    if (jobId) await stopInference(jobId).catch(() => { })
   }
 
   return (
@@ -100,12 +100,10 @@ export default function Inference() {
       <div className="topbar">
         <div className="topbar-title">
           <h2>Inference</h2>
-          <span className="crumb">/ swinir / evaluate</span>
         </div>
       </div>
 
       <div className="content">
-        <div className="eyebrow rise">Evaluation</div>
         <h1 className="editorial rise" style={{ fontSize: 32, marginBottom: 10 }}>Run Inference and Metrics</h1>
         <p className="rise" style={{ color: 'var(--ink-2)', marginBottom: 30, maxWidth: 600 }}>
           Run a trained SwinIR model on LR patches and compute super-resolution metrics against HR ground truth.
@@ -243,7 +241,7 @@ export default function Inference() {
                 deltas (SR − LR bicubic) to show the model's improvement over simple upsampling.
               </p>
               <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 12, padding: 8, background: 'var(--bg)', borderRadius: 'var(--radius-sm)' }}>
-                SR rows · LR rows · Delta rows — averaged across all test images.<br/>
+                SR rows · LR rows · Delta rows — averaged across all test images.<br />
                 Results saved to: log_dir/&lt;sr_dir_name&gt;.log
               </div>
             </div>

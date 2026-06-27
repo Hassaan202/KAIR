@@ -396,7 +396,7 @@ export default function Preprocessing() {
   const [jobId, setJobId] = useState(null)
 
   const handleStop = async () => {
-    if (jobId) await stopPreprocessing(jobId).catch(() => {})
+    if (jobId) await stopPreprocessing(jobId).catch(() => { })
   }
 
   return (
@@ -404,12 +404,10 @@ export default function Preprocessing() {
       <div className="topbar">
         <div className="topbar-title">
           <h2>Preprocessing</h2>
-          <span className="crumb">/ data / process</span>
         </div>
       </div>
 
       <div className="content">
-        <div className="eyebrow rise">Data Pipeline</div>
         <h1 className="editorial rise" style={{ fontSize: 32, marginBottom: 10 }}>Dataset Preparation</h1>
         <p className="rise" style={{ color: 'var(--ink-2)', marginBottom: 30, maxWidth: 600 }}>
           Prepare HR/LR training pairs from raw satellite imagery or degrade existing HR patches.
@@ -457,7 +455,7 @@ export default function Preprocessing() {
               </div>
             )}
           </div>
-          
+
           <div className="col">
             {jobId && <LogConsole domain="preprocessing" jobId={jobId} onStop={handleStop} />}
           </div>

@@ -37,15 +37,15 @@ const DEFAULT_PSNR = {
   },
   net_g: {
     net_type: 'swinir', upscale: 2, in_chans: 3, img_size: 128,
-    window_size: 8, img_range: 1.0, depths: [6,6,6,6,6,6],
-    embed_dim: 180, num_heads: [6,6,6,6,6,6],
+    window_size: 8, img_range: 1.0, depths: [6, 6, 6, 6, 6, 6],
+    embed_dim: 180, num_heads: [6, 6, 6, 6, 6, 6],
     mlp_ratio: 2, upsampler: 'pixelshuffle', resi_connection: '1conv', init_type: 'default',
   },
   train_params: {
     G_lossfn_type: 'l1', G_lossfn_weight: 1.0, E_decay: 0.999,
     G_optimizer_type: 'adam', G_optimizer_lr: 1e-4, G_optimizer_wd: 0,
     G_optimizer_reuse: true, G_scheduler_type: 'MultiStepLR',
-    G_scheduler_milestones: [300000,400000,500000,600000,700000],
+    G_scheduler_milestones: [300000, 400000, 500000, 600000, 700000],
     G_scheduler_gamma: 0.5, G_param_strict: true, E_param_strict: true,
     checkpoint_test: 10000, checkpoint_save: 10000, checkpoint_print: 1000,
   },
@@ -65,16 +65,16 @@ const DEFAULT_GAN = {
   train_params: {
     ...DEFAULT_PSNR.train_params,
     G_optimizer_lr: 5e-5,
-    G_scheduler_milestones: [100000,200000,300000,400000,500000],
+    G_scheduler_milestones: [100000, 200000, 300000, 400000, 500000],
     checkpoint_test: 5000, checkpoint_save: 5000,
   },
   gan_extras: {
     F_lossfn_type: 'l1', F_lossfn_weight: 1.0,
-    F_feature_layer: [2,7,16,25,34], F_weights: [0.1,0.1,1.0,1.0,1.0],
+    F_feature_layer: [2, 7, 16, 25, 34], F_weights: [0.1, 0.1, 1.0, 1.0, 1.0],
     F_use_input_norm: true, F_use_range_norm: false,
     gan_type: 'gan', D_lossfn_weight: 0.1,
     D_optimizer_lr: 5e-5, D_optimizer_wd: 0,
-    D_scheduler_milestones: [100000,200000,300000,400000,500000],
+    D_scheduler_milestones: [100000, 200000, 300000, 400000, 500000],
     D_scheduler_gamma: 0.5, D_init_iters: 0, G_optimizer_lr: 5e-5,
   },
 }
@@ -103,8 +103,8 @@ export default function Training() {
   const set = (path, value) => setForm((prev) => deepSet(prev, path, value))
 
   useEffect(() => {
-    listTrainingConfigs().then((r) => setConfigs(r.data)).catch(() => {})
-    listTrainingRuns().then((r) => setRuns(r.data)).catch(() => {})
+    listTrainingConfigs().then((r) => setConfigs(r.data)).catch(() => { })
+    listTrainingRuns().then((r) => setRuns(r.data)).catch(() => { })
   }, [jobId])
 
   useEffect(() => {
@@ -117,7 +117,7 @@ export default function Training() {
       const cfg = r.data
       const isGan = cfg.model === 'gan'
       setMode(isGan ? 'gan' : 'psnr')
-    } catch {}
+    } catch { }
   }
 
   const handleSubmit = async (e) => {
@@ -136,7 +136,7 @@ export default function Training() {
   }
 
   const handleStop = async () => {
-    if (jobId) await stopTraining(jobId).catch(() => {})
+    if (jobId) await stopTraining(jobId).catch(() => { })
   }
 
   return (
@@ -144,12 +144,10 @@ export default function Training() {
       <div className="topbar">
         <div className="topbar-title">
           <h2>Training</h2>
-          <span className="crumb">/ swinir / configure</span>
         </div>
       </div>
-      
+
       <div className="content">
-        <div className="eyebrow rise">Configuration</div>
         <h1 className="editorial rise" style={{ fontSize: 32, marginBottom: 10 }}>Configure and launch SwinIR model training</h1>
         <p className="rise" style={{ color: 'var(--ink-2)', marginBottom: 30, maxWidth: 600 }}>
           Set up hyperparameters, dataset paths, and architecture settings for PSNR or GAN-based super-resolution training.
@@ -346,7 +344,7 @@ export default function Training() {
                 </div>
               )}
             </div>
-            
+
             {jobId && <LogConsole domain="training" jobId={jobId} onStop={handleStop} />}
           </div>
         </div>
