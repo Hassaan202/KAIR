@@ -545,6 +545,43 @@ The script picks the file with the highest iteration number automatically.
 
 ---
 
+### 3.3 `raw_inference.py` — End-to-end Raw Inference
+
+Performs full end-to-end inference on raw satellite images (or standard images) with integrated pipeline3 coregistration, patching, stitching, and metric evaluation.
+
+**Run:**
+```bash
+python raw_inference.py --config config.json
+```
+
+**JSON Configuration Example:**
+```json
+{
+    "mode": "paired",
+    "lr_path": "path/to/lr.tif",
+    "hr_path": "path/to/hr.tif",
+    "model_path": "superresolution/task/models/best_E.pth",
+    "output_dir": "testsets/raw_inference_output",
+    "scale_factor": 2,
+    "patch_size": 128,
+    "overlap": 32,
+    "enable_preprocessing": true,
+    "model_config": {
+        "upscale": 2, "in_chans": 3, "img_size": 128, "window_size": 8,
+        "depths": [6,6,6,6,6,6], "embed_dim": 180, "num_heads": [6,6,6,6,6,6],
+        "mlp_ratio": 2, "upsampler": "pixelshuffle", "resi_connection": "1conv"
+    }
+}
+```
+
+**Operating Modes:**
+- `"paired"`: Takes both an LR and HR image. Optionally runs full `pipeline3` stages (ORB, Phase Correlation, Radiometric Normalisation, Histogram Matching) to align the LR image exactly to the HR grid, enforcing an exact integer scale ratio regardless of the real sensor resolution ratio. Runs SwinIR on overlapping patches, stitches them, and computes 8 metrics (PSNR, SSIM, SAM, etc.) against the HR ground truth.
+- `"lr_only"`: Takes only a single LR image. Runs SwinIR on overlapping patches and saves the SR output. No HR ground truth required; no metrics are computed.
+
+Outputs are saved in the `output_dir`: `lr_display.png`, `sr_display.png`, `hr_display.png`, `metrics.json`, and a log file.
+
+---
+
 ## 4. Visual Comparison
 
 ### `compare_images_side_by_side.py`

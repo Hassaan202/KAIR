@@ -36,3 +36,65 @@ class StartInferenceRequest(BaseModel):
 class JobResponse(BaseModel):
     job_id: str
     status: str
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Raw image inference schemas
+# ──────────────────────────────────────────────────────────────────────────────
+
+class CoregConfig(BaseModel):
+    """Pipeline3-style coregistration and radiometric normalisation parameters."""
+    enable_preprocessing: bool = True
+    # Stage A — ORB keypoint coregistration
+    coreg_a_enabled: bool = True
+    coreg_a_max_features: int = 8000
+    coreg_a_match_ratio: float = 0.75
+    coreg_a_ransac_thresh: float = 4.0
+    # Stage B — Phase cross-correlation
+    coreg_b_enabled: bool = True
+    coreg_b_upsample_factor: int = 100
+    # Radiometric regression + histogram matching
+    radiometric_enabled: bool = True
+    radiometric_block_size: int = 256
+    radiometric_rmse_threshold: float = 35.0
+    radiometric_n_samples: int = 150_000
+    radiometric_n_fit_windows: int = 80
+    radiometric_post_hist_match: bool = True
+    histogram_n_sample_windows: int = 40
+    # Percentile scaling parameters
+    nodata_value: int = 0
+    saturated_value: int = 32767
+    clip_percentiles: List[float] = Field(default_factory=lambda: [2.0, 98.0])
+    percentile_n_sample_windows: int = 20
+    coreg_preview_decim_dim: int = 2000
+
+
+class RawPairedInferenceRequest(BaseModel):
+    """Request body for paired LR+HR raw image inference (with optional alignment)."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    lr_path: str
+    hr_path: str
+    lr_bands: List[int] = Field(default_factory=lambda: [3, 2, 1])
+    hr_bands: List[int] = Field(default_factory=lambda: [1, 2, 3])
+    model_path: str
+    output_dir: str
+    patch_size: int = 128
+    overlap: int = 32
+    scale_factor: int = 2
+    coreg: CoregConfig = Field(default_factory=CoregConfig)
+    model_network_config: ModelConfig = Field(default_factory=ModelConfig)
+
+
+class LROnlyInferenceRequest(BaseModel):
+    """Request body for LR-only raw image inference (no metrics)."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    lr_path: str
+    lr_bands: List[int] = Field(default_factory=lambda: [1, 2, 3])
+    model_path: str
+    output_dir: str
+    patch_size: int = 128
+    overlap: int = 32
+    scale_factor: int = 2
+    model_network_config: ModelConfig = Field(default_factory=ModelConfig)

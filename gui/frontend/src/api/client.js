@@ -21,6 +21,11 @@ export const getLatestModel = (taskName) => api.get(`/inference/latest-model/${e
 export const startInference = (data) => api.post('/inference/start', data)
 export const stopInference = (jobId) => api.post(`/inference/stop/${jobId}`)
 export const getInferenceStatus = (jobId) => api.get(`/inference/status/${jobId}`)
+// Raw satellite image inference
+export const startRawPairedInference = (data) => api.post('/inference/raw-paired/start', data)
+export const startLROnlyInference = (data) => api.post('/inference/lr-only/start', data)
+export const getRawInferenceMetrics = (jobId) => api.get(`/inference/raw/metrics/${jobId}`)
+export const getRawResultImageUrl = (jobId, filename) => `/api/inference/raw/result/${jobId}/${filename}`
 
 // ── Preprocessing ─────────────────────────────────────────────────────────────
 export const startPipeline3 = (data) => api.post('/preprocessing/pipeline3/start', data)

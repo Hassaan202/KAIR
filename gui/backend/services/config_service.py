@@ -98,6 +98,19 @@ def _find_latest_checkpoint(models_dir: Path) -> Tuple[Optional[int], Optional[s
     return best_iter, str(best_path.relative_to(PROJECT_ROOT))
 
 
+def _find_options_file(options_dir: Path) -> Optional[Path]:
+    """Find a .json options file in the directory. Prefers 'train.json' if it exists, otherwise picks any."""
+    if not options_dir.is_dir():
+        return None
+    train_json = options_dir / "train.json"
+    if train_json.exists():
+        return train_json
+    json_files = sorted(options_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if json_files:
+        return json_files[0]
+    return None
+
+
 def list_training_runs() -> List[Dict[str, Any]]:
     """
     Scan superresolution/ for task directories and return metadata about each.
@@ -118,8 +131,8 @@ def list_training_runs() -> List[Dict[str, Any]]:
 
         # Try to get config type (gan vs plain)
         config_type = "unknown"
-        train_config_path = options_dir / "train.json"
-        if train_config_path.exists():
+        train_config_path = _find_options_file(options_dir)
+        if train_config_path:
             try:
                 cfg = load_kair_json(train_config_path)
                 config_type = cfg.get("model", "plain")
@@ -152,10 +165,12 @@ def get_latest_model_info(task_name: str) -> Dict[str, Any]:
     if latest_path is None:
         raise FileNotFoundError(f"No model checkpoints found in {models_dir}")
 
-    # Parse netG from saved train.json
+    # Parse netG from saved options json
     model_config = {}
-    train_json = task_dir / "options" / "train.json"
-    if train_json.exists():
+    options_file_name = None
+    train_json = _find_options_file(task_dir / "options")
+    if train_json:
+        options_file_name = train_json.name
         try:
             cfg = load_kair_json(train_json)
             net_g = cfg.get("netG", {})
@@ -180,4 +195,5 @@ def get_latest_model_info(task_name: str) -> Dict[str, Any]:
         "latest_iteration": latest_iter,
         "model_path": latest_path,
         "model_config": model_config,
+        "options_file": options_file_name,
     }

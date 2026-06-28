@@ -86,15 +86,25 @@ A temporary config JSON is written to `gui/backend/tmp/` and passed to the train
 
 ### Inference (`/inference`)
 
-| Field | Description |
-|---|---|
-| Latest from task | Dropdown of `superresolution/` task names — auto-selects highest `*_E.pth` and autofills `MODEL_CONFIG` from `options/train.json` |
-| Custom path | Manual `.pth` path and manual `MODEL_CONFIG` form |
-| LR/HR/SR dirs | Input/output paths |
-| Tile size | Leave blank for full-image; set to a multiple of `window_size` for tiled inference on large images |
-| MODEL_CONFIG | `upscale`, `in_chans`, `img_size`, `window_size`, `embed_dim`, `depths`, `num_heads`, `upsampler`, `resi_connection` |
+Features a 3-tab layout:
 
-Metrics reported: PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER.
+**Tab 1 — Patched Images (`main_test_swinir_config.py`)**
+Runs batch inference on a directory of already-aligned LR patches against an HR ground truth directory.
+- Model selection (latest from task or custom `.pth`) with autofilled `MODEL_CONFIG`
+- Input/Output dir paths
+- Reports 8 metrics across the batch (PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER)
+
+**Tab 2 — Raw HR+LR Inference (`raw_inference.py`)**
+Performs end-to-end inference on a paired raw satellite image.
+- Automatically coregisters (ORB + Phase Correlation) and radiometrically matches LR to HR
+- Enforces an exact integer scaling factor (e.g. ×2) regardless of sensor resolution differences
+- Patches the full image, runs SR, stitches with a Hann-window blend, and computes metrics
+- Resulting SR/LR/HR display images are displayed directly in the GUI
+
+**Tab 3 — LR-Only Inference (`raw_inference.py`)**
+Runs SR on a single unlabelled LR image (no HR ground truth).
+- Full image patching and stitching
+- Result SR image is displayed directly in the GUI
 
 ---
 

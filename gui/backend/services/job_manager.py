@@ -34,15 +34,24 @@ class Job:
     logs: Deque[str] = field(default_factory=lambda: deque(maxlen=5000))
     return_code: Optional[int] = None
     output_dir: Optional[str] = None  # set for jobs that write preview images (see preprocessing.py)
+    meta: Optional[dict] = None       # arbitrary metadata (e.g. output_dir for raw inference)
 
 
 # Global in-memory job store
 _jobs: Dict[str, Job] = {}
 
 
-def create_job(cmd: list, cwd: str, output_dir: Optional[str] = None) -> str:
+def create_job(
+    cmd: list,
+    cwd: str,
+    output_dir: Optional[str] = None,
+    meta: Optional[dict] = None,
+) -> str:
     job_id = str(uuid.uuid4())
-    _jobs[job_id] = Job(job_id=job_id, cmd=cmd, cwd=cwd, output_dir=output_dir)
+    _jobs[job_id] = Job(
+        job_id=job_id, cmd=cmd, cwd=cwd,
+        output_dir=output_dir, meta=meta,
+    )
     return job_id
 
 
@@ -162,8 +171,9 @@ def get_job_summary(job_id: str) -> Optional[dict]:
     if not job:
         return None
     return {
-        "job_id": job.job_id,
-        "status": job.status,
-        "return_code": job.return_code,
-        "logs": list(job.logs)[-200:],  # last 200 lines for polling
+        "job_id":       job.job_id,
+        "status":       job.status,
+        "return_code":  job.return_code,
+        "logs":         list(job.logs)[-200:],  # last 200 lines for polling
+        "meta":         job.meta,
     }
