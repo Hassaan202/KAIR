@@ -18,6 +18,8 @@ export const getTrainingStatus = (jobId) => api.get(`/training/status/${jobId}`)
 // ── Inference ─────────────────────────────────────────────────────────────────
 export const listInferenceTasks = () => api.get('/inference/tasks')
 export const getLatestModel = (taskName) => api.get(`/inference/latest-model/${encodeURIComponent(taskName)}`)
+export const getConfigFromOptions = (name) => api.get(`/inference/config-from-options/${encodeURIComponent(name)}`)
+export const getConfigFromPath = (path) => api.get('/inference/config-from-path', { params: { path } })
 export const startInference = (data) => api.post('/inference/start', data)
 export const stopInference = (jobId) => api.post(`/inference/stop/${jobId}`)
 export const getInferenceStatus = (jobId) => api.get(`/inference/status/${jobId}`)

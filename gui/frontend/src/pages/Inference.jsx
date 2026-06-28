@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef } from 'react'
 import {
-  listInferenceTasks, getLatestModel, startInference, stopInference,
+  listInferenceTasks, listTrainingConfigs, getLatestModel,
+  getConfigFromOptions, getConfigFromPath,
+  startInference, stopInference,
   startRawPairedInference, startLROnlyInference,
   getRawInferenceMetrics, getRawResultImageUrl, openLogStream,
 } from '../api/client'
@@ -48,8 +50,50 @@ function deepSet(obj, path, value) {
   return next
 }
 
+/* ─── Config auto-load hook ─────────────────────────────────── */
+function useConfigAutoLoad(modelSource, customModelPath, setModelConfig) {
+  const [selectedOptions, setSelectedOptions] = useState('')
+  const [configSource, setConfigSource] = useState(null)
+  const pathDebounceRef = useRef(null)
+
+  useEffect(() => {
+    if (modelSource !== 'custom' || !customModelPath.trim()) {
+      setConfigSource(null)
+      return
+    }
+    clearTimeout(pathDebounceRef.current)
+    pathDebounceRef.current = setTimeout(async () => {
+      try {
+        const r = await getConfigFromPath(customModelPath)
+        if (r.data.source !== 'not_found' && Object.keys(r.data.model_config).length > 0) {
+          setModelConfig({ ...DEFAULT_MODEL_CONFIG, ...r.data.model_config })
+          setConfigSource({ type: 'train_json', label: r.data.task_name })
+          setSelectedOptions('')
+        }
+      } catch {}
+    }, 600)
+    return () => clearTimeout(pathDebounceRef.current)
+  }, [customModelPath, modelSource])
+
+  const handleOptionsSelect = async (name) => {
+    setSelectedOptions(name)
+    if (!name) { setConfigSource(null); return }
+    try {
+      const r = await getConfigFromOptions(name)
+      setModelConfig({ ...DEFAULT_MODEL_CONFIG, ...r.data.model_config })
+      setConfigSource({ type: 'options_file', label: name })
+    } catch {}
+  }
+
+  return { selectedOptions, configSource, handleOptionsSelect }
+}
+
 /* ─── Reusable model selection panel ───────────────────────── */
-function ModelSelectionCard({ modelSource, setModelSource, tasks, selectedTask, setSelectedTask, latestInfo, customModelPath, setCustomModelPath }) {
+function ModelSelectionCard({
+  modelSource, setModelSource, tasks, selectedTask, setSelectedTask,
+  latestInfo, customModelPath, setCustomModelPath,
+  optionsFiles = [], selectedOptions = '', onOptionsSelect, configSource = null,
+}) {
   return (
     <div className="card" style={{ marginBottom: 16 }}>
       <div className="card-title">Model Selection</div>
@@ -80,9 +124,42 @@ function ModelSelectionCard({ modelSource, setModelSource, tasks, selectedTask, 
         <>
           <TextField label="Model path (.pth)" value={customModelPath} onChange={setCustomModelPath}
             placeholder="superresolution/task/models/175000_E.pth" mono />
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 8, padding: '8px 12px', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line-2)' }}>
-            ⚠ Please manually enter the model architecture configuration below.
-          </div>
+          {optionsFiles.length > 0 && (
+            <div className="form-group" style={{ marginTop: 6 }}>
+              <label>
+                Load config from options file
+                <span className="hint" style={{ marginLeft: 6 }}>auto-fills Model Architecture</span>
+              </label>
+              <select className="text-input" value={selectedOptions}
+                onChange={(e) => onOptionsSelect?.(e.target.value)}>
+                <option value="">— choose options file —</option>
+                {optionsFiles.map((f) => (
+                  <option key={f.name} value={f.name}>{f.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {configSource ? (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6, marginTop: 6,
+              padding: '8px 12px', borderRadius: 'var(--radius-sm)',
+              background: 'var(--bg-2)', border: '1px solid var(--line-2)',
+            }}>
+              <span style={{ color: 'var(--ok)', fontSize: 13 }}>✓</span>
+              <span style={{ fontSize: 12, color: 'var(--ink-2)' }}>
+                Model Architecture auto-loaded from{' '}
+                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink)' }}>
+                  {configSource.type === 'train_json'
+                    ? `superresolution/${configSource.label}/options/train.json`
+                    : configSource.label}
+                </span>
+              </span>
+            </div>
+          ) : (
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 6, padding: '8px 12px', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line-2)' }}>
+              ⚠ Please manually enter the model architecture configuration below.
+            </div>
+          )}
         </>
       )}
     </div>
@@ -90,9 +167,15 @@ function ModelSelectionCard({ modelSource, setModelSource, tasks, selectedTask, 
 }
 
 /* ─── Model architecture section ───────────────────────────── */
-function ModelArchCard({ modelConfig, setMC }) {
+function ModelArchCard({ modelConfig, setMC, configSource = null }) {
+  const title = configSource ? (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      Model Architecture (MODEL_CONFIG)
+      <span style={{ fontSize: 11, color: 'var(--ok)', fontWeight: 400 }}>✓ auto-loaded</span>
+    </span>
+  ) : 'Model Architecture (MODEL_CONFIG)'
   return (
-    <CollapsibleSection title="Model Architecture (MODEL_CONFIG)" defaultOpen={false}>
+    <CollapsibleSection title={title} defaultOpen={false}>
       <div className="grid-2">
         <NumberField label="Upscale" value={modelConfig.upscale} onChange={v => setMC('upscale', v)} min={1} />
         <NumberField label="In channels" value={modelConfig.in_chans} onChange={v => setMC('in_chans', v)} min={1} />
@@ -312,12 +395,13 @@ function parsePatchedMetrics(lines) {
   return hasData ? result : null
 }
 
-function PatchedTab({ tasks }) {
+function PatchedTab({ tasks, optionsFiles }) {
   const [modelSource, setModelSource] = useState('auto')
   const [selectedTask, setSelectedTask] = useState('')
   const [latestInfo, setLatestInfo] = useState(null)
   const [customModelPath, setCustomModelPath] = useState('')
   const [modelConfig, setModelConfig] = useState(DEFAULT_MODEL_CONFIG)
+  const { selectedOptions, configSource, handleOptionsSelect } = useConfigAutoLoad(modelSource, customModelPath, setModelConfig)
   const [inferConfig, setInferConfig] = useState({
     lr_dir: '', hr_dir: '', sr_dir: 'testsets/output/sr',
     tile: '', tile_overlap: 32, overwrite_sr: true, log_dir: 'testsets/output',
@@ -383,6 +467,8 @@ function PatchedTab({ tasks }) {
             modelSource={modelSource} setModelSource={setModelSource}
             tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTask}
             latestInfo={latestInfo} customModelPath={customModelPath} setCustomModelPath={setCustomModelPath}
+            optionsFiles={optionsFiles} selectedOptions={selectedOptions}
+            onOptionsSelect={handleOptionsSelect} configSource={configSource}
           />
           <CollapsibleSection title="Input / Output Paths" defaultOpen>
             <TextField label="LR image dir" value={inferConfig.lr_dir}
@@ -405,7 +491,7 @@ function PatchedTab({ tasks }) {
             <BoolToggle label="Overwrite existing SR images" value={inferConfig.overwrite_sr}
               onChange={v => setIC('overwrite_sr', v)} />
           </CollapsibleSection>
-          <ModelArchCard modelConfig={modelConfig} setMC={setMC} />
+          <ModelArchCard modelConfig={modelConfig} setMC={setMC} configSource={configSource} />
           {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
           <button type="submit" className="btn btn-primary full-width"
             disabled={loading || (modelSource === 'auto' && !selectedTask)}>
@@ -448,12 +534,13 @@ function PatchedTab({ tasks }) {
 }
 
 /* ─── TAB 2: Raw HR+LR Inference ───────────────────────────── */
-function RawPairedTab({ tasks }) {
+function RawPairedTab({ tasks, optionsFiles }) {
   const [modelSource, setModelSource] = useState('auto')
   const [selectedTask, setSelectedTask] = useState('')
   const [latestInfo, setLatestInfo] = useState(null)
   const [customModelPath, setCustomModelPath] = useState('')
   const [modelConfig, setModelConfig] = useState(DEFAULT_MODEL_CONFIG)
+  const { selectedOptions, configSource, handleOptionsSelect } = useConfigAutoLoad(modelSource, customModelPath, setModelConfig)
   const [coreg, setCoreg] = useState(DEFAULT_COREG)
   const [config, setConfig] = useState({
     lr_path: '', hr_path: '', lr_bands: [3, 2, 1], hr_bands: [1, 2, 3],
@@ -526,6 +613,8 @@ function RawPairedTab({ tasks }) {
             modelSource={modelSource} setModelSource={setModelSource}
             tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTask}
             latestInfo={latestInfo} customModelPath={customModelPath} setCustomModelPath={setCustomModelPath}
+            optionsFiles={optionsFiles} selectedOptions={selectedOptions}
+            onOptionsSelect={handleOptionsSelect} configSource={configSource}
           />
 
           <div className="card" style={{ marginBottom: 16 }}>
@@ -553,7 +642,7 @@ function RawPairedTab({ tasks }) {
           </div>
 
           <CoregSection coreg={coreg} setCoreg={setCoreg} />
-          <ModelArchCard modelConfig={modelConfig} setMC={setMC} />
+          <ModelArchCard modelConfig={modelConfig} setMC={setMC} configSource={configSource} />
 
           {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
           <button type="submit" className="btn btn-primary full-width"
@@ -621,12 +710,13 @@ function RawPairedTab({ tasks }) {
 }
 
 /* ─── TAB 3: LR-Only Inference ──────────────────────────────── */
-function LROnlyTab({ tasks }) {
+function LROnlyTab({ tasks, optionsFiles }) {
   const [modelSource, setModelSource] = useState('auto')
   const [selectedTask, setSelectedTask] = useState('')
   const [latestInfo, setLatestInfo] = useState(null)
   const [customModelPath, setCustomModelPath] = useState('')
   const [modelConfig, setModelConfig] = useState(DEFAULT_MODEL_CONFIG)
+  const { selectedOptions, configSource, handleOptionsSelect } = useConfigAutoLoad(modelSource, customModelPath, setModelConfig)
   const [config, setConfig] = useState({
     lr_path: '', lr_bands: [1, 2, 3],
     output_dir: 'testsets/raw_inference_output/lr_only',
@@ -680,6 +770,8 @@ function LROnlyTab({ tasks }) {
             modelSource={modelSource} setModelSource={setModelSource}
             tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTask}
             latestInfo={latestInfo} customModelPath={customModelPath} setCustomModelPath={setCustomModelPath}
+            optionsFiles={optionsFiles} selectedOptions={selectedOptions}
+            onOptionsSelect={handleOptionsSelect} configSource={configSource}
           />
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title">Input Image</div>
@@ -698,7 +790,7 @@ function LROnlyTab({ tasks }) {
             <NumberField label="Scale factor" value={config.scale_factor}
               onChange={v => setCfg('scale_factor', v)} min={1} max={8} />
           </div>
-          <ModelArchCard modelConfig={modelConfig} setMC={setMC} />
+          <ModelArchCard modelConfig={modelConfig} setMC={setMC} configSource={configSource} />
           {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
           <button type="submit" className="btn btn-primary full-width"
             disabled={loading || !config.lr_path || (modelSource === 'auto' && !selectedTask)}>
@@ -739,9 +831,11 @@ function LROnlyTab({ tasks }) {
 export default function Inference() {
   const [activeTab, setActiveTab] = useState(0)
   const [tasks, setTasks] = useState([])
+  const [optionsFiles, setOptionsFiles] = useState([])
 
   useEffect(() => {
     listInferenceTasks().then(r => setTasks(r.data)).catch(() => { })
+    listTrainingConfigs().then(r => setOptionsFiles(r.data)).catch(() => { })
   }, [])
 
   const tabs = [
@@ -775,9 +869,9 @@ export default function Inference() {
           ))}
         </div>
 
-        {activeTab === 0 && <PatchedTab tasks={tasks} />}
-        {activeTab === 1 && <RawPairedTab tasks={tasks} />}
-        {activeTab === 2 && <LROnlyTab tasks={tasks} />}
+        {activeTab === 0 && <PatchedTab tasks={tasks} optionsFiles={optionsFiles} />}
+        {activeTab === 1 && <RawPairedTab tasks={tasks} optionsFiles={optionsFiles} />}
+        {activeTab === 2 && <LROnlyTab tasks={tasks} optionsFiles={optionsFiles} />}
       </div>
     </div>
   )

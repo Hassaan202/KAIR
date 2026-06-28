@@ -18,6 +18,14 @@ const UPSAMPLER_OPTIONS = ['pixelshuffle', 'pixelshuffledirect', 'nearest+conv']
 const RESI_OPTIONS = ['1conv', '3conv']
 const GAN_TYPES = ['gan', 'ragan', 'lsgan', 'wgan', 'softplusgan']
 const DEG_TYPES = ['bsrgan', 'bsrgan_plus', 'real_esrgan', 'satellite']
+const BAND_PRESETS = [
+  { key: 'pan',    label: 'Panchromatic — 1 band',                  n: 1,  bands: ['Pan'] },
+  { key: 'rgb',    label: 'RGB — 3 bands',                           n: 3,  bands: ['R', 'G', 'B'] },
+  { key: 'ms4',    label: 'Multispectral 4-band (Pleiades / Planet)', n: 4,  bands: ['B', 'G', 'R', 'NIR'] },
+  { key: 'ms8',    label: 'Multispectral 8-band (WorldView)',         n: 8,  bands: ['C', 'B', 'G', 'Y', 'R', 'RE', 'NIR1', 'NIR2'] },
+  { key: 's2',     label: 'Sentinel-2 — 13 bands',                   n: 13, bands: ['B1','B2','B3','B4','B5','B6','B7','B8','B8A','B9','B10','B11','B12'] },
+  { key: 'custom', label: 'Custom…',                                 n: null, bands: [] },
+]
 
 const DEFAULT_PSNR = {
   training_type: 'psnr',
@@ -99,8 +107,18 @@ export default function Training() {
   const [jobId, setJobId] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [bandPreset, setBandPreset] = useState('rgb')
+  const [customBandCount, setCustomBandCount] = useState(3)
 
   const set = (path, value) => setForm((prev) => deepSet(prev, path, value))
+
+  const applyBands = (presetKey, customN = customBandCount) => {
+    const preset = BAND_PRESETS.find((p) => p.key === presetKey)
+    const n = preset.n ?? customN
+    setBandPreset(presetKey)
+    if (preset.n) setCustomBandCount(preset.n)
+    setForm((prev) => deepSet(deepSet(prev, 'n_channels', n), 'net_g.in_chans', n))
+  }
 
   useEffect(() => {
     listTrainingConfigs().then((r) => setConfigs(r.data)).catch(() => { })
@@ -109,6 +127,8 @@ export default function Training() {
 
   useEffect(() => {
     setForm(mode === 'gan' ? DEFAULT_GAN : DEFAULT_PSNR)
+    setBandPreset('rgb')
+    setCustomBandCount(3)
   }, [mode])
 
   const loadConfig = async (name) => {
@@ -187,9 +207,36 @@ export default function Training() {
                 <div className="grid-2">
                   <SelectField label="Scale" value={form.scale}
                     onChange={(v) => set('scale', parseInt(v))} options={SCALE_OPTIONS} />
-                  <SelectField label="Channels" value={form.n_channels}
-                    onChange={(v) => set('n_channels', parseInt(v))}
-                    options={[{ value: 1, label: 'Grayscale (1)' }, { value: 3, label: 'RGB (3)' }]} />
+                  <div className="form-group">
+                    <label>Input bands</label>
+                    <select className="text-input" value={bandPreset}
+                      onChange={(e) => applyBands(e.target.value)}>
+                      {BAND_PRESETS.map((p) => (
+                        <option key={p.key} value={p.key}>{p.label}</option>
+                      ))}
+                    </select>
+                    {bandPreset === 'custom' ? (
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input type="number" className="num-input" style={{ width: 80 }}
+                          value={customBandCount} min={1} max={200}
+                          onChange={(e) => {
+                            const n = Math.max(1, parseInt(e.target.value) || 1)
+                            setCustomBandCount(n)
+                            applyBands('custom', n)
+                          }} />
+                        <span style={{ fontSize: 12, color: 'var(--ink-2)' }}>bands</span>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
+                        {BAND_PRESETS.find((p) => p.key === bandPreset)?.bands.map((b) => (
+                          <span key={b} style={{
+                            padding: '2px 7px', borderRadius: 10, fontSize: 11, fontWeight: 500,
+                            background: 'var(--bg-2)', border: '1px solid var(--line-2)', color: 'var(--ink-2)',
+                          }}>{b}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </CollapsibleSection>
 

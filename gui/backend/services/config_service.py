@@ -70,6 +70,30 @@ def load_swinir_config(config_name: str) -> Dict[str, Any]:
     return load_kair_json(path)
 
 
+def _extract_model_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Pull MODEL_CONFIG-compatible fields from a KAIR config dict."""
+    net_g = cfg.get("netG", {})
+    return {
+        "upscale":         net_g.get("upscale",          cfg.get("scale",      2)),
+        "in_chans":        net_g.get("in_chans",         cfg.get("n_channels", 3)),
+        "img_size":        net_g.get("img_size",         128),
+        "window_size":     net_g.get("window_size",      8),
+        "img_range":       net_g.get("img_range",        1.0),
+        "depths":          net_g.get("depths",           [6, 6, 6, 6, 6, 6]),
+        "embed_dim":       net_g.get("embed_dim",        180),
+        "num_heads":       net_g.get("num_heads",        [6, 6, 6, 6, 6, 6]),
+        "mlp_ratio":       net_g.get("mlp_ratio",        2),
+        "upsampler":       net_g.get("upsampler",        "pixelshuffle"),
+        "resi_connection": net_g.get("resi_connection",  "1conv"),
+    }
+
+
+def get_model_config_from_options(options_name: str) -> Dict[str, Any]:
+    """Extract MODEL_CONFIG fields from an options/swinir JSON file."""
+    cfg = load_swinir_config(options_name)
+    return _extract_model_config(cfg)
+
+
 # ── Training runs ─────────────────────────────────────────────────────────────
 
 def _find_latest_checkpoint(models_dir: Path) -> Tuple[Optional[int], Optional[str]]:
@@ -173,20 +197,7 @@ def get_latest_model_info(task_name: str) -> Dict[str, Any]:
         options_file_name = train_json.name
         try:
             cfg = load_kair_json(train_json)
-            net_g = cfg.get("netG", {})
-            model_config = {
-                "upscale": net_g.get("upscale", cfg.get("scale", 2)),
-                "in_chans": net_g.get("in_chans", cfg.get("n_channels", 3)),
-                "img_size": net_g.get("img_size", 128),
-                "window_size": net_g.get("window_size", 8),
-                "img_range": net_g.get("img_range", 1.0),
-                "depths": net_g.get("depths", [6, 6, 6, 6, 6, 6]),
-                "embed_dim": net_g.get("embed_dim", 180),
-                "num_heads": net_g.get("num_heads", [6, 6, 6, 6, 6, 6]),
-                "mlp_ratio": net_g.get("mlp_ratio", 2),
-                "upsampler": net_g.get("upsampler", "pixelshuffle"),
-                "resi_connection": net_g.get("resi_connection", "1conv"),
-            }
+            model_config = _extract_model_config(cfg)
         except Exception:
             pass
 
