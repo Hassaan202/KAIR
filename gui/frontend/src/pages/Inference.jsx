@@ -13,15 +13,15 @@ import { openLogStream } from '../api/client'
 
 /* ─── Constants ─────────────────────────────────────────────── */
 const UPSAMPLER_OPTIONS = ['pixelshuffle', 'pixelshuffledirect', 'nearest+conv']
-const RESI_OPTIONS      = ['1conv', '3conv']
-const METRIC_NAMES      = ['psnr', 'ssim', 'it_ssim', 'sam', 'uiqi', 'rmse', 'fsim', 'srer']
-const METRIC_LABELS     = ['PSNR', 'SSIM', 'IT-SSIM', 'SAM', 'UIQI', 'RMSE', 'FSIM', 'SRER']
-const LOWER_IS_BETTER   = new Set(['sam', 'rmse'])
+const RESI_OPTIONS = ['1conv', '3conv']
+const METRIC_NAMES = ['psnr', 'ssim', 'it_ssim', 'sam', 'uiqi', 'rmse', 'fsim', 'srer']
+const METRIC_LABELS = ['PSNR', 'SSIM', 'IT-SSIM', 'SAM', 'UIQI', 'RMSE', 'FSIM', 'SRER']
+const LOWER_IS_BETTER = new Set(['sam', 'rmse'])
 
 const DEFAULT_MODEL_CONFIG = {
   upscale: 2, in_chans: 3, img_size: 128, window_size: 8,
-  img_range: 1.0, depths: [6,6,6,6,6,6], embed_dim: 180,
-  num_heads: [6,6,6,6,6,6], mlp_ratio: 2,
+  img_range: 1.0, depths: [6, 6, 6, 6, 6, 6], embed_dim: 180,
+  num_heads: [6, 6, 6, 6, 6, 6], mlp_ratio: 2,
   upsampler: 'pixelshuffle', resi_connection: '1conv',
 }
 
@@ -276,18 +276,18 @@ function ImageViewer({ images }) {
 
 /* ─── TAB 1: Patched Images (existing) ─────────────────────── */
 function PatchedTab({ tasks }) {
-  const [modelSource, setModelSource]         = useState('auto')
-  const [selectedTask, setSelectedTask]       = useState('')
-  const [latestInfo, setLatestInfo]           = useState(null)
+  const [modelSource, setModelSource] = useState('auto')
+  const [selectedTask, setSelectedTask] = useState('')
+  const [latestInfo, setLatestInfo] = useState(null)
   const [customModelPath, setCustomModelPath] = useState('')
-  const [modelConfig, setModelConfig]         = useState(DEFAULT_MODEL_CONFIG)
-  const [inferConfig, setInferConfig]         = useState({
+  const [modelConfig, setModelConfig] = useState(DEFAULT_MODEL_CONFIG)
+  const [inferConfig, setInferConfig] = useState({
     lr_dir: '', hr_dir: '', sr_dir: 'testsets/output/sr',
     tile: '', tile_overlap: 32, overwrite_sr: true, log_dir: 'testsets/output',
   })
-  const [jobId, setJobId]   = useState(null)
+  const [jobId, setJobId] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError]   = useState('')
+  const [error, setError] = useState('')
 
   const setMC = (path, value) => setModelConfig(prev => deepSet(prev, path, value))
   const setIC = (key, value) => setInferConfig(prev => ({ ...prev, [key]: value }))
@@ -361,7 +361,7 @@ function PatchedTab({ tasks }) {
       </div>
       <div className="col">
         <div className="card">
-          <div className="card-title">Metrics Evaluation</div>
+          <div className="card-title">About</div>
           <p className="text-muted text-sm" style={{ lineHeight: 1.5 }}>
             Inference computes 8 metrics — PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER —
             for both the SR output and the bicubic baseline, then reports deltas to show improvement over simple upsampling.
@@ -371,7 +371,7 @@ function PatchedTab({ tasks }) {
             Results saved to: log_dir/&lt;sr_dir_name&gt;.log
           </div>
         </div>
-        {jobId && <LogConsole domain="inference" jobId={jobId} onStop={() => stopInference(jobId).catch(() => {})} />}
+        {jobId && <LogConsole domain="inference" jobId={jobId} onStop={() => stopInference(jobId).catch(() => { })} />}
       </div>
     </div>
   )
@@ -379,25 +379,25 @@ function PatchedTab({ tasks }) {
 
 /* ─── TAB 2: Raw HR+LR Inference ───────────────────────────── */
 function RawPairedTab({ tasks }) {
-  const [modelSource, setModelSource]         = useState('auto')
-  const [selectedTask, setSelectedTask]       = useState('')
-  const [latestInfo, setLatestInfo]           = useState(null)
+  const [modelSource, setModelSource] = useState('auto')
+  const [selectedTask, setSelectedTask] = useState('')
+  const [latestInfo, setLatestInfo] = useState(null)
   const [customModelPath, setCustomModelPath] = useState('')
-  const [modelConfig, setModelConfig]         = useState(DEFAULT_MODEL_CONFIG)
-  const [coreg, setCoreg]                     = useState(DEFAULT_COREG)
-  const [config, setConfig]                   = useState({
-    lr_path: '', hr_path: '', lr_bands: [3,2,1], hr_bands: [1,2,3],
+  const [modelConfig, setModelConfig] = useState(DEFAULT_MODEL_CONFIG)
+  const [coreg, setCoreg] = useState(DEFAULT_COREG)
+  const [config, setConfig] = useState({
+    lr_path: '', hr_path: '', lr_bands: [3, 2, 1], hr_bands: [1, 2, 3],
     output_dir: 'testsets/raw_inference_output', patch_size: 128,
     overlap: 32, scale_factor: 2,
   })
-  const [jobId, setJobId]     = useState(null)
+  const [jobId, setJobId] = useState(null)
   const [jobDone, setJobDone] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState('')
+  const [error, setError] = useState('')
   const [metrics, setMetrics] = useState(null)
-  const esRef                 = useRef(null)
+  const esRef = useRef(null)
 
-  const setMC  = (path, value) => setModelConfig(prev => deepSet(prev, path, value))
+  const setMC = (path, value) => setModelConfig(prev => deepSet(prev, path, value))
   const setCfg = (key, value) => setConfig(prev => ({ ...prev, [key]: value }))
 
   useEffect(() => {
@@ -427,12 +427,12 @@ function RawPairedTab({ tasks }) {
       const jid = r.data.job_id
       setJobId(jid)
       // Stream logs + poll for metrics on completion
-      esRef.current = openLogStream('inference', jid, () => {}, (status) => {
+      esRef.current = openLogStream('inference', jid, () => { }, (status) => {
         setJobDone(true)
         if (status === 'completed') {
           // Fetch metrics after job finishes
           setTimeout(() => {
-            getRawInferenceMetrics(jid).then(m => setMetrics(m.data)).catch(() => {})
+            getRawInferenceMetrics(jid).then(m => setMetrics(m.data)).catch(() => { })
           }, 500)
         }
       })
@@ -495,7 +495,7 @@ function RawPairedTab({ tasks }) {
 
       {/* Right: log + results */}
       <div className="col">
-        {jobId && <LogConsole domain="inference" jobId={jobId} onStop={() => {}} />}
+        {jobId && <LogConsole domain="inference" jobId={jobId} onStop={() => { }} />}
         {jobDone && (
           <div className="card" style={{ marginTop: 16 }}>
             <div className="card-title">Results</div>
@@ -531,22 +531,22 @@ function RawPairedTab({ tasks }) {
 
 /* ─── TAB 3: LR-Only Inference ──────────────────────────────── */
 function LROnlyTab({ tasks }) {
-  const [modelSource, setModelSource]         = useState('auto')
-  const [selectedTask, setSelectedTask]       = useState('')
-  const [latestInfo, setLatestInfo]           = useState(null)
+  const [modelSource, setModelSource] = useState('auto')
+  const [selectedTask, setSelectedTask] = useState('')
+  const [latestInfo, setLatestInfo] = useState(null)
   const [customModelPath, setCustomModelPath] = useState('')
-  const [modelConfig, setModelConfig]         = useState(DEFAULT_MODEL_CONFIG)
-  const [config, setConfig]                   = useState({
-    lr_path: '', lr_bands: [1,2,3],
+  const [modelConfig, setModelConfig] = useState(DEFAULT_MODEL_CONFIG)
+  const [config, setConfig] = useState({
+    lr_path: '', lr_bands: [1, 2, 3],
     output_dir: 'testsets/raw_inference_output/lr_only',
     patch_size: 128, overlap: 32, scale_factor: 2,
   })
-  const [jobId, setJobId]     = useState(null)
+  const [jobId, setJobId] = useState(null)
   const [jobDone, setJobDone] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState('')
+  const [error, setError] = useState('')
 
-  const setMC  = (path, value) => setModelConfig(prev => deepSet(prev, path, value))
+  const setMC = (path, value) => setModelConfig(prev => deepSet(prev, path, value))
   const setCfg = (key, value) => setConfig(prev => ({ ...prev, [key]: value }))
 
   useEffect(() => {
@@ -569,7 +569,7 @@ function LROnlyTab({ tasks }) {
       const payload = { ...config, model_path: modelPath, model_network_config: modelConfig }
       const r = await startLROnlyInference(payload)
       setJobId(r.data.job_id)
-      openLogStream('inference', r.data.job_id, () => {}, () => setJobDone(true))
+      openLogStream('inference', r.data.job_id, () => { }, () => setJobDone(true))
     } catch (err) {
       setError(err.response?.data?.detail || String(err))
     } finally { setLoading(false) }
@@ -618,7 +618,7 @@ function LROnlyTab({ tasks }) {
 
       {/* Right: log + results */}
       <div className="col">
-        {jobId && <LogConsole domain="inference" jobId={jobId} onStop={() => {}} />}
+        {jobId && <LogConsole domain="inference" jobId={jobId} onStop={() => { }} />}
         {jobDone && resultImages.length > 0 && (
           <div className="card" style={{ marginTop: 16 }}>
             <div className="card-title">Results</div>
@@ -647,16 +647,16 @@ function LROnlyTab({ tasks }) {
 /* ─── Main page ─────────────────────────────────────────────── */
 export default function Inference() {
   const [activeTab, setActiveTab] = useState(0)
-  const [tasks, setTasks]         = useState([])
+  const [tasks, setTasks] = useState([])
 
   useEffect(() => {
-    listInferenceTasks().then(r => setTasks(r.data)).catch(() => {})
+    listInferenceTasks().then(r => setTasks(r.data)).catch(() => { })
   }, [])
 
   const tabs = [
-    { label: 'Patched Images',     icon: '▦' },
+    { label: 'Patched Images', icon: '▦' },
     { label: 'Raw HR+LR Inference', icon: '⟳' },
-    { label: 'LR-Only Inference',  icon: '↑' },
+    { label: 'LR-Only Inference', icon: '↑' },
   ]
 
   return (

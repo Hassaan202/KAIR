@@ -256,7 +256,7 @@ def get_raw_result_image(job_id: str, filename: str):
     if not output_dir:
         raise HTTPException(status_code=404, detail="Job has no output_dir recorded.")
 
-    file_path = Path(output_dir) / filename
+    file_path = PROJECT_ROOT / output_dir / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"{filename} not yet available.")
 
@@ -276,7 +276,7 @@ def get_raw_metrics(job_id: str):
     if not output_dir:
         raise HTTPException(status_code=404, detail="Job has no output_dir recorded.")
 
-    metrics_path = Path(output_dir) / "metrics.json"
+    metrics_path = PROJECT_ROOT / output_dir / "metrics.json"
     if not metrics_path.exists():
         raise HTTPException(status_code=404, detail="metrics.json not yet available.")
 
