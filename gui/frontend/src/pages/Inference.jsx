@@ -2,15 +2,13 @@ import { useEffect, useState, useRef } from 'react'
 import {
   listInferenceTasks, getLatestModel, startInference, stopInference,
   startRawPairedInference, startLROnlyInference,
-  getRawInferenceMetrics, getRawResultImageUrl,
+  getRawInferenceMetrics, getRawResultImageUrl, openLogStream,
 } from '../api/client'
 import LogConsole from '../components/LogConsole'
 import {
   SelectField, TextField, NumberField, BoolToggle,
   ArrayEditor, CollapsibleSection,
 } from '../components/FormFields'
-import { openLogStream } from '../api/client'
-
 /* ─── Constants ─────────────────────────────────────────────── */
 const UPSAMPLER_OPTIONS = ['pixelshuffle', 'pixelshuffledirect', 'nearest+conv']
 const RESI_OPTIONS = ['1conv', '3conv']
@@ -275,6 +273,45 @@ function ImageViewer({ images }) {
 }
 
 /* ─── TAB 1: Patched Images (existing) ─────────────────────── */
+
+/**
+ * Parse average metrics from the log lines produced by main_test_swinir_config.py.
+ * It looks for lines like:
+ *   Average SR metrics: / PSNR: 34.12 / SSIM: 0.87 …
+ *   Average LR (bicubic baseline) metrics: …
+ *   Average Delta (SR - LR bicubic) … / ΔPSNR: +1.23 …
+ */
+function parsePatchedMetrics(lines) {
+  const result = { sr: {}, lr_bicubic: {}, delta: {} }
+  let section = null
+
+  for (const line of lines) {
+    const l = line.toLowerCase()
+    if (l.includes('average sr metrics')) { section = 'sr'; continue }
+    if (l.includes('average lr') || l.includes('average bicubic')) { section = 'lr'; continue }
+    if (l.includes('average delta')) { section = 'delta'; continue }
+
+    if (section) {
+      // Match lines like "  PSNR: 34.1234" or "  ΔPSNR: +1.23"
+      const kv = line.match(/[Δ]?(\w+):\s*([+-]?[\d.]+)/)
+      if (kv) {
+        const key = kv[1].toLowerCase()
+        const val = parseFloat(kv[2])
+        if (!isNaN(val)) {
+          if (section === 'sr')    result.sr[key] = val
+          else if (section === 'lr') result.lr_bicubic[key] = val
+          else if (section === 'delta') result.delta[key] = val
+        }
+      }
+      // Stop current section when we hit an empty line or next heading
+      if (line.trim() === '' || l.includes('===') || l.includes('---')) section = null
+    }
+  }
+
+  const hasData = Object.keys(result.sr).length > 0
+  return hasData ? result : null
+}
+
 function PatchedTab({ tasks }) {
   const [modelSource, setModelSource] = useState('auto')
   const [selectedTask, setSelectedTask] = useState('')
@@ -286,8 +323,11 @@ function PatchedTab({ tasks }) {
     tile: '', tile_overlap: 32, overwrite_sr: true, log_dir: 'testsets/output',
   })
   const [jobId, setJobId] = useState(null)
+  const [jobDone, setJobDone] = useState(false)
+  const [patchedMetrics, setPatchedMetrics] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const allLinesRef = useRef([])
 
   const setMC = (path, value) => setModelConfig(prev => deepSet(prev, path, value))
   const setIC = (key, value) => setInferConfig(prev => ({ ...prev, [key]: value }))
@@ -306,6 +346,8 @@ function PatchedTab({ tasks }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setError(''); setLoading(true)
+    setJobId(null); setJobDone(false); setPatchedMetrics(null)
+    allLinesRef.current = []
     try {
       const modelPath = modelSource === 'auto' ? (latestInfo?.model_path || '') : customModelPath
       const payload = {
@@ -319,6 +361,18 @@ function PatchedTab({ tasks }) {
     } catch (err) {
       setError(err.response?.data?.detail || String(err))
     } finally { setLoading(false) }
+  }
+
+  // Called by LogConsole with every new line so we can accumulate for parsing
+  const handleLogLine = (line) => {
+    allLinesRef.current.push(line)
+  }
+
+  // Called by LogConsole when job completes — parse accumulated lines
+  const handleComplete = () => {
+    setJobDone(true)
+    const parsed = parsePatchedMetrics(allLinesRef.current)
+    if (parsed) setPatchedMetrics(parsed)
   }
 
   return (
@@ -360,18 +414,34 @@ function PatchedTab({ tasks }) {
         </form>
       </div>
       <div className="col">
-        <div className="card">
-          <div className="card-title">About</div>
-          <p className="text-muted text-sm" style={{ lineHeight: 1.5 }}>
-            Inference computes 8 metrics — PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER —
-            for both the SR output and the bicubic baseline, then reports deltas to show improvement over simple upsampling.
-          </p>
-          <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 12, padding: 8, background: 'var(--bg)', borderRadius: 'var(--radius-sm)' }}>
-            SR rows · LR rows · Delta rows — averaged across all test images.<br />
-            Results saved to: log_dir/&lt;sr_dir_name&gt;.log
+        {!jobId && (
+          <div className="card">
+            <div className="card-title">About</div>
+            <p className="text-muted text-sm" style={{ lineHeight: 1.5 }}>
+              Runs SwinIR on a directory of pre-aligned LR image patches, producing SR outputs and computing
+              8 quality metrics — PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER — per image against the
+              HR ground truth directory. A bicubic baseline is also computed so the model improvement can be measured.
+            </p>
+            <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 12, padding: 8, background: 'var(--bg)', borderRadius: 'var(--radius-sm)' }}>
+              Per-image rows + average summary — results saved to: log_dir/&lt;sr_dir_name&gt;.log
+            </div>
           </div>
-        </div>
-        {jobId && <LogConsole domain="inference" jobId={jobId} onStop={() => stopInference(jobId).catch(() => { })} />}
+        )}
+        {jobId && (
+          <LogConsole
+            domain="inference"
+            jobId={jobId}
+            onStop={() => stopInference(jobId).catch(() => {})}
+            onLine={handleLogLine}
+            onComplete={handleComplete}
+          />
+        )}
+        {jobDone && patchedMetrics && (
+          <div className="card" style={{ marginTop: 16 }}>
+            <div className="card-title">Average Metrics Summary</div>
+            <MetricsTable metrics={patchedMetrics} />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -395,7 +465,9 @@ function RawPairedTab({ tasks }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [metrics, setMetrics] = useState(null)
-  const esRef = useRef(null)
+  const [metricsError, setMetricsError] = useState('')
+  // jobIdRef keeps the latest jobId accessible inside callbacks without stale closures
+  const jobIdRef = useRef(null)
 
   const setMC = (path, value) => setModelConfig(prev => deepSet(prev, path, value))
   const setCfg = (key, value) => setConfig(prev => ({ ...prev, [key]: value }))
@@ -412,30 +484,28 @@ function RawPairedTab({ tasks }) {
     }
   }, [selectedTask, modelSource])
 
+  const fetchMetrics = async (jid) => {
+    setMetricsError('')
+    try {
+      // Small delay to ensure file is flushed to disk
+      await new Promise(r => setTimeout(r, 800))
+      const m = await getRawInferenceMetrics(jid)
+      setMetrics(m.data)
+    } catch (err) {
+      const detail = err.response?.data?.detail || String(err)
+      setMetricsError(`Could not load metrics: ${detail}`)
+    }
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault(); setError(''); setLoading(true)
-    setJobId(null); setJobDone(false); setMetrics(null)
+    setJobId(null); setJobDone(false); setMetrics(null); setMetricsError('')
     try {
       const modelPath = modelSource === 'auto' ? (latestInfo?.model_path || '') : customModelPath
-      const payload = {
-        ...config,
-        model_path: modelPath,
-        model_network_config: modelConfig,
-        coreg,
-      }
+      const payload = { ...config, model_path: modelPath, model_network_config: modelConfig, coreg }
       const r = await startRawPairedInference(payload)
-      const jid = r.data.job_id
-      setJobId(jid)
-      // Stream logs + poll for metrics on completion
-      esRef.current = openLogStream('inference', jid, () => { }, (status) => {
-        setJobDone(true)
-        if (status === 'completed') {
-          // Fetch metrics after job finishes
-          setTimeout(() => {
-            getRawInferenceMetrics(jid).then(m => setMetrics(m.data)).catch(() => { })
-          }, 500)
-        }
-      })
+      jobIdRef.current = r.data.job_id
+      setJobId(r.data.job_id)
     } catch (err) {
       setError(err.response?.data?.detail || String(err))
     } finally { setLoading(false) }
@@ -495,15 +565,32 @@ function RawPairedTab({ tasks }) {
 
       {/* Right: log + results */}
       <div className="col">
-        {jobId && <LogConsole domain="inference" jobId={jobId} onStop={() => { }} />}
+        {jobId && (
+          <LogConsole
+            domain="inference"
+            jobId={jobId}
+            onStop={() => {}}
+            onComplete={() => {
+              setJobDone(true)
+              fetchMetrics(jobIdRef.current)
+            }}
+          />
+        )}
         {jobDone && (
           <div className="card" style={{ marginTop: 16 }}>
             <div className="card-title">Results</div>
             {resultImages.length > 0 && <ImageViewer images={resultImages} />}
             <MetricsTable metrics={metrics} />
-            {!metrics && (
+            {!metrics && !metricsError && (
               <div style={{ marginTop: 16, fontSize: 12, color: 'var(--ink-3)' }}>
-                {jobId ? 'Loading metrics…' : 'Metrics will appear after job completes.'}
+                Loading metrics…
+              </div>
+            )}
+            {metricsError && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12, color: 'var(--bad)', marginBottom: 8 }}>{metricsError}</div>
+                <button className="btn" style={{ fontSize: 12, padding: '5px 14px' }}
+                  onClick={() => fetchMetrics(jobIdRef.current)}>↻ Retry</button>
               </div>
             )}
           </div>
@@ -512,15 +599,19 @@ function RawPairedTab({ tasks }) {
           <div className="card">
             <div className="card-title">About</div>
             <p className="text-muted text-sm" style={{ lineHeight: 1.6 }}>
-              Runs SwinIR on a raw LR satellite image paired with an HR ground truth.
-              Optionally performs full pipeline3.py alignment (Stage A ORB + Stage B Phase Correlation
-              + Radiometric Regression + Histogram Matching) to align the LR image to the HR pixel grid,
-              enforcing an exact ×{config.scale_factor} scale factor regardless of the real sensor
-              resolution ratio (e.g. 1.7×, 2.3×).
+              Provide a raw LR satellite image and a co-located HR ground truth image (GeoTIFF, JP2, or standard formats).
+              The mode optionally runs the full coregistration stack — CRS reprojection, ORB keypoint alignment,
+              phase cross-correlation sub-pixel correction, radiometric regression and histogram matching —
+              to precisely align the LR image onto the HR pixel grid before inference.
             </p>
             <p className="text-muted text-sm" style={{ lineHeight: 1.6, marginTop: 10 }}>
-              Outputs: <strong>LR · SR · HR display images</strong> + full <strong>8-metric table</strong>
-              (PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER) vs bicubic baseline.
+              The LR image is then rescaled to an <strong>exact integer ×{config.scale_factor} ratio</strong> relative to the
+              HR dimensions, regardless of the real sensor resolution difference (e.g. 1.7×, 2.3×).
+              SwinIR runs on overlapping patches which are stitched together using a Hann-window blend.
+            </p>
+            <p className="text-muted text-sm" style={{ lineHeight: 1.6, marginTop: 10 }}>
+              Outputs: <strong>LR · SR · HR display images</strong> + a full <strong>8-metric comparison table</strong>
+              (PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER) against the bicubic baseline.
             </p>
           </div>
         )}

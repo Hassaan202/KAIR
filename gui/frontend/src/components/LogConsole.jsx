@@ -46,13 +46,17 @@ function Lightbox({ preview, label, onClose }) {
   )
 }
 
-export default function LogConsole({ domain, jobId, onStop }) {
+export default function LogConsole({ domain, jobId, onStop, onComplete, onLine }) {
   const [lines, setLines] = useState([])
   const [status, setStatus] = useState('pending')
   const [previews, setPreviews] = useState({})
   const [lightbox, setLightbox] = useState(null)
   const bottomRef = useRef(null)
   const esRef = useRef(null)
+  const onCompleteRef = useRef(onComplete)
+  const onLineRef = useRef(onLine)
+  onCompleteRef.current = onComplete   // keep ref fresh without re-running effect
+  onLineRef.current = onLine
 
   useEffect(() => {
     if (!jobId) return
@@ -65,6 +69,7 @@ export default function LogConsole({ domain, jobId, onStop }) {
       jobId,
       (line) => {
         setLines((prev) => [...prev, line])
+        if (onLineRef.current) onLineRef.current(line)
         if (domain === 'preprocessing') {
           const match = line.match(PREVIEW_MARKER_RE)
           if (match) {
@@ -74,7 +79,12 @@ export default function LogConsole({ domain, jobId, onStop }) {
           }
         }
       },
-      (s) => setStatus(s)
+      (s) => {
+        setStatus(s)
+        if (s === 'completed' && onCompleteRef.current) {
+          onCompleteRef.current()
+        }
+      }
     )
 
     return () => esRef.current?.close()
