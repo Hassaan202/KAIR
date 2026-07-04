@@ -491,7 +491,6 @@ function PatchedTab({ tasks, optionsFiles }) {
             <BoolToggle label="Overwrite existing SR images" value={inferConfig.overwrite_sr}
               onChange={v => setIC('overwrite_sr', v)} />
           </CollapsibleSection>
-          <ModelArchCard modelConfig={modelConfig} setMC={setMC} configSource={configSource} />
           {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
           <button type="submit" className="btn btn-primary full-width"
             disabled={loading || (modelSource === 'auto' && !selectedTask)}>
@@ -500,6 +499,7 @@ function PatchedTab({ tasks, optionsFiles }) {
         </form>
       </div>
       <div className="col">
+        <ModelArchCard modelConfig={modelConfig} setMC={setMC} configSource={configSource} />
         {!jobId && (
           <div className="card">
             <div className="card-title">About</div>
@@ -642,7 +642,6 @@ function RawPairedTab({ tasks, optionsFiles }) {
           </div>
 
           <CoregSection coreg={coreg} setCoreg={setCoreg} />
-          <ModelArchCard modelConfig={modelConfig} setMC={setMC} configSource={configSource} />
 
           {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
           <button type="submit" className="btn btn-primary full-width"
@@ -652,8 +651,9 @@ function RawPairedTab({ tasks, optionsFiles }) {
         </form>
       </div>
 
-      {/* Right: log + results */}
+      {/* Right: model arch + log + results */}
       <div className="col">
+        <ModelArchCard modelConfig={modelConfig} setMC={setMC} configSource={configSource} />
         {jobId && (
           <LogConsole
             domain="inference"
@@ -790,7 +790,6 @@ function LROnlyTab({ tasks, optionsFiles }) {
             <NumberField label="Scale factor" value={config.scale_factor}
               onChange={v => setCfg('scale_factor', v)} min={1} max={8} />
           </div>
-          <ModelArchCard modelConfig={modelConfig} setMC={setMC} configSource={configSource} />
           {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
           <button type="submit" className="btn btn-primary full-width"
             disabled={loading || !config.lr_path || (modelSource === 'auto' && !selectedTask)}>
@@ -799,8 +798,9 @@ function LROnlyTab({ tasks, optionsFiles }) {
         </form>
       </div>
 
-      {/* Right: log + results */}
+      {/* Right: model arch + log + results */}
       <div className="col">
+        <ModelArchCard modelConfig={modelConfig} setMC={setMC} configSource={configSource} />
         {jobId && <LogConsole domain="inference" jobId={jobId} onStop={() => { }} />}
         {jobDone && resultImages.length > 0 && (
           <div className="card" style={{ marginTop: 16 }}>

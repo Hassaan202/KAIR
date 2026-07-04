@@ -46,21 +46,25 @@ function Lightbox({ preview, label, onClose }) {
   )
 }
 
-export default function LogConsole({ domain, jobId, onStop, onComplete, onLine }) {
+export default function LogConsole({ domain, jobId, onStop, onComplete, onLine, onPreviewsChange }) {
   const [lines, setLines] = useState([])
   const [status, setStatus] = useState('pending')
   const [previews, setPreviews] = useState({})
   const [lightbox, setLightbox] = useState(null)
   const bottomRef = useRef(null)
   const esRef = useRef(null)
+  const previewsRef = useRef({})
   const onCompleteRef = useRef(onComplete)
   const onLineRef = useRef(onLine)
+  const onPreviewsChangeRef = useRef(onPreviewsChange)
   onCompleteRef.current = onComplete   // keep ref fresh without re-running effect
   onLineRef.current = onLine
+  onPreviewsChangeRef.current = onPreviewsChange
 
   useEffect(() => {
     if (!jobId) return
     setLines([])
+    previewsRef.current = {}
     setPreviews({})
     setStatus('running')
 
@@ -75,7 +79,10 @@ export default function LogConsole({ domain, jobId, onStop, onComplete, onLine }
           if (match) {
             const [, filename, stage, scene] = match
             const url = `/api/preprocessing/preview/${jobId}/${encodeURIComponent(filename)}`
-            setPreviews((prev) => ({ ...prev, [stage]: { url, scene } }))
+            const next = { ...previewsRef.current, [stage]: { url, scene } }
+            previewsRef.current = next
+            setPreviews(next)
+            onPreviewsChangeRef.current?.(next)
           }
         }
       },

@@ -6,6 +6,78 @@ import {
   ArrayEditor, CollapsibleSection
 } from '../components/FormFields'
 
+const PREVIEW_STAGES = [
+  { key: 'load_hr',     label: 'HR Loaded' },
+  { key: 'load_lr',     label: 'LR Loaded' },
+  { key: 'coreg_a',     label: 'Coreg — ORB' },
+  { key: 'coreg_b',     label: 'Coreg — Phase' },
+  { key: 'radiometric', label: 'Radiometric' },
+  { key: 'patches',     label: 'Sample Patches' },
+]
+
+function StepPreviewPanel({ previews }) {
+  const [lightbox, setLightbox] = useState(null)
+  const stages = PREVIEW_STAGES.filter(s => previews[s.key])
+
+  if (stages.length === 0) {
+    return (
+      <div className="card" style={{ textAlign: 'center', padding: '60px 40px' }}>
+        <div style={{ fontSize: 32, marginBottom: 16, opacity: 0.3 }}>⬡</div>
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.7 }}>
+          No step previews yet.<br />
+          Run <strong>Pipeline A</strong> on a satellite image pair to see the intermediate
+          output at each processing stage.
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.87)', zIndex: 9999,
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          justifyContent: 'center', cursor: 'zoom-out',
+        }}>
+          <div style={{ color: '#fff', fontSize: 15, fontWeight: 600, marginBottom: 12 }}>
+            {lightbox.label}
+          </div>
+          <img src={lightbox.url} alt={lightbox.label}
+            style={{ maxWidth: '88vw', maxHeight: '80vh', borderRadius: 8, boxShadow: '0 0 60px rgba(0,0,0,0.8)' }} />
+          <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginTop: 10 }}>
+            Scene: {lightbox.scene} &nbsp;·&nbsp; click anywhere to close
+          </div>
+        </div>
+      )}
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+        gap: 20,
+      }}>
+        {stages.map(s => (
+          <div key={s.key} className="card"
+            style={{ cursor: 'pointer', padding: 0, overflow: 'hidden', transition: 'box-shadow 0.15s' }}
+            onClick={() => setLightbox({ url: previews[s.key].url, scene: previews[s.key].scene, label: s.label })}>
+            <img
+              src={previews[s.key].url} alt={s.label}
+              style={{ width: '100%', display: 'block', objectFit: 'cover', aspectRatio: '4/3', background: 'var(--bg-2)' }}
+            />
+            <div style={{ padding: '10px 14px' }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>{s.label}</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 3 }}>
+                Scene: {previews[s.key].scene}
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--cobalt-deep)', marginTop: 4 }}>Click to enlarge</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Pipeline A defaults ────────────────────────────────────────────────────────
 const DEFAULT_P3 = {
   hr_image_path: '', lr_image_path: '', output_dir: 'output_patches',
@@ -392,12 +464,25 @@ function RunPipelineForm({ onJobStart }) {
 // ── Main Preprocessing page ─────────────────────────────────────────────────
 
 export default function Preprocessing() {
-  const [tab, setTab] = useState('pipeline3')
+  const [activeTab, setActiveTab] = useState(0)
   const [jobId, setJobId] = useState(null)
+  const [previewMap, setPreviewMap] = useState({})
 
   const handleStop = async () => {
     if (jobId) await stopPreprocessing(jobId).catch(() => { })
   }
+
+  const handleJobStart = (jid) => {
+    setJobId(jid)
+    setPreviewMap({})
+  }
+
+  const previewCount = Object.keys(previewMap).length
+  const tabs = [
+    { label: 'Pipeline A — Pleiades' },
+    { label: 'Pipeline B — HR Degradation' },
+    { label: 'Step Preview', badge: previewCount > 0 ? previewCount : null },
+  ]
 
   return (
     <div>
@@ -409,57 +494,78 @@ export default function Preprocessing() {
 
       <div className="content">
         <h1 className="editorial rise" style={{ fontSize: 32, marginBottom: 10 }}>Dataset Preparation</h1>
-        <p className="rise" style={{ color: 'var(--ink-2)', marginBottom: 30, maxWidth: 600 }}>
+        <p className="rise" style={{ color: 'var(--ink-2)', marginBottom: 24, maxWidth: 600 }}>
           Prepare HR/LR training pairs from raw satellite imagery or degrade existing HR patches.
         </p>
 
-        <div className="module-grid rise" style={{ animationDelay: '100ms' }}>
-          <div className="col">
-            <div className="mode-tabs">
-              <button className={`mode-tab ${tab === 'pipeline3' ? 'active' : ''}`}
-                onClick={() => setTab('pipeline3')}>
-                Pipeline A — Pleiades
-              </button>
-              <button className={`mode-tab ${tab === 'run_pipeline' ? 'active' : ''}`}
-                onClick={() => setTab('run_pipeline')}>
-                Pipeline B — HR Degradation
-              </button>
-            </div>
-
-            {tab === 'pipeline3' && (
-              <div className="card animate-in" style={{ padding: 0, overflow: 'hidden', border: 'none', boxShadow: 'none', background: 'transparent' }}>
-                <div style={{ marginBottom: 16 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600 }}>Pleiades / Multi-sensor Patch Extraction</span>
-                </div>
-                <p style={{ color: 'var(--ink-3)', fontSize: 12.5, marginBottom: 20, lineHeight: 1.5 }}>
-                  Takes paired HR + LR GeoTIFF or JP2 satellite images, performs 3-stage
-                  coregistration (ORB → Phase Correlation → ECC), radiometric regression,
-                  and extracts quality-filtered patch pairs.
-                </p>
-                <Pipeline3Form onJobStart={setJobId} />
-              </div>
-            )}
-
-            {tab === 'run_pipeline' && (
-              <div className="card animate-in" style={{ padding: 0, overflow: 'hidden', border: 'none', boxShadow: 'none', background: 'transparent' }}>
-                <div style={{ marginBottom: 16 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600 }}>HR-only / HR+LR Pair Preprocessing</span>
-                </div>
-                <p style={{ color: 'var(--ink-3)', fontSize: 12.5, marginBottom: 20, lineHeight: 1.5 }}>
-                  Processes HR images with optional normalisation and cloud masking.
-                  In HR-only mode, generates synthetic LR via BSRGAN, Real-ESRGAN, or
-                  satellite-optimized degradation. In HR+LR pair mode, preprocesses both
-                  HR and LR without degradation.
-                </p>
-                <RunPipelineForm onJobStart={setJobId} />
-              </div>
-            )}
-          </div>
-
-          <div className="col">
-            {jobId && <LogConsole domain="preprocessing" jobId={jobId} onStop={handleStop} />}
-          </div>
+        <div className="mode-tabs rise" style={{ marginBottom: 28, animationDelay: '80ms' }}>
+          {tabs.map((t, i) => (
+            <button key={i} type="button"
+              className={`mode-tab ${activeTab === i ? 'active' : ''}`}
+              onClick={() => setActiveTab(i)}>
+              {t.label}
+              {t.badge && (
+                <span style={{
+                  marginLeft: 6, fontSize: 10, fontWeight: 700,
+                  background: 'var(--cobalt-deep)', color: '#fff',
+                  borderRadius: 10, padding: '1px 6px',
+                }}>
+                  {t.badge}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
+
+        {activeTab < 2 && (
+          <div className="module-grid rise" style={{ animationDelay: '100ms' }}>
+            <div className="col">
+              {activeTab === 0 && (
+                <div className="animate-in">
+                  <div style={{ marginBottom: 16 }}>
+                    <span style={{ fontSize: 15, fontWeight: 600 }}>Pleiades / Multi-sensor Patch Extraction</span>
+                  </div>
+                  <p style={{ color: 'var(--ink-3)', fontSize: 12.5, marginBottom: 20, lineHeight: 1.5 }}>
+                    Takes paired HR + LR GeoTIFF or JP2 satellite images, performs 3-stage
+                    coregistration (ORB → Phase Correlation → ECC), radiometric regression,
+                    and extracts quality-filtered patch pairs.
+                  </p>
+                  <Pipeline3Form onJobStart={handleJobStart} />
+                </div>
+              )}
+              {activeTab === 1 && (
+                <div className="animate-in">
+                  <div style={{ marginBottom: 16 }}>
+                    <span style={{ fontSize: 15, fontWeight: 600 }}>HR-only / HR+LR Pair Preprocessing</span>
+                  </div>
+                  <p style={{ color: 'var(--ink-3)', fontSize: 12.5, marginBottom: 20, lineHeight: 1.5 }}>
+                    Processes HR images with optional normalisation and cloud masking.
+                    In HR-only mode, generates synthetic LR via BSRGAN, Real-ESRGAN, or
+                    satellite-optimized degradation. In HR+LR pair mode, preprocesses both
+                    HR and LR without degradation.
+                  </p>
+                  <RunPipelineForm onJobStart={handleJobStart} />
+                </div>
+              )}
+            </div>
+            <div className="col">
+              {jobId && (
+                <LogConsole
+                  domain="preprocessing"
+                  jobId={jobId}
+                  onStop={handleStop}
+                  onPreviewsChange={setPreviewMap}
+                />
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 2 && (
+          <div className="rise" style={{ animationDelay: '80ms' }}>
+            <StepPreviewPanel previews={previewMap} />
+          </div>
+        )}
       </div>
     </div>
   )
