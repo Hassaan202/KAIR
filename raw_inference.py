@@ -760,8 +760,8 @@ def run_sr_on_image(
 
 def calculate_all_metrics(sr_rgb: np.ndarray, hr_rgb: np.ndarray, border: int) -> dict:
     """
-    Compute 8 SR metrics, bicubic-baseline metrics, and deltas.
-    All images uint8 HxWx3 RGB.
+    Compute 8 SR metrics, bicubic-baseline metrics, deltas, and per-channel PSNR/SSIM.
+    All images uint8 HxWxC RGB.
     """
     sr_bgr = cv2.cvtColor(sr_rgb, cv2.COLOR_RGB2BGR)
     hr_bgr = cv2.cvtColor(hr_rgb, cv2.COLOR_RGB2BGR)
@@ -791,7 +791,16 @@ def calculate_all_metrics(sr_rgb: np.ndarray, hr_rgb: np.ndarray, border: int) -
     sr_metrics = _m(sr_crop)
     lr_metrics = _m(bic_crop)
     deltas     = {k: sr_metrics[k] - lr_metrics[k] for k in METRIC_NAMES}
-    return {"sr": sr_metrics, "lr_bicubic": lr_metrics, "delta": deltas}
+
+    # Per-band PSNR and SSIM (channel 0 = first selected band, etc.)
+    per_band = {}
+    for i in range(sr_crop.shape[2]):
+        per_band[f"band_{i + 1}"] = {
+            "psnr": float(util.calculate_psnr(sr_crop[:, :, i:i+1], hr_u8[:, :, i:i+1], border=border)),
+            "ssim": float(util.calculate_ssim(sr_crop[:, :, i:i+1], hr_u8[:, :, i:i+1], border=border)),
+        }
+
+    return {"sr": sr_metrics, "lr_bicubic": lr_metrics, "delta": deltas, "per_band": per_band}
 
 
 # ===========================================================================
@@ -883,6 +892,17 @@ def run_paired_inference(cfg: dict) -> None:
     save_display_png(lr_scaled,  output_dir / "lr_display.png")
     save_display_png(sr_img,     output_dir / "sr_display.png")
     save_display_png(hr_display, output_dir / "hr_display.png")
+
+    # Per-band grayscale images (channel i+1 of the RGB display)
+    for i in range(lr_scaled.shape[2]):
+        cv2.imwrite(str(output_dir / f"lr_band_{i + 1}.png"), lr_scaled[:, :, i])
+    for i in range(sr_img.shape[2]):
+        cv2.imwrite(str(output_dir / f"sr_band_{i + 1}.png"), sr_img[:, :, i])
+    for i in range(hr_display.shape[2]):
+        cv2.imwrite(str(output_dir / f"hr_band_{i + 1}.png"), hr_display[:, :, i])
+
+    metrics["lr_bands"] = lr_bands
+    metrics["hr_bands"] = hr_bands
     with open(output_dir / "metrics.json", "w", encoding="utf-8") as fh:
         json.dump(metrics, fh, indent=2)
     logging.info("Metrics -> %s", output_dir / "metrics.json")
@@ -925,6 +945,12 @@ def run_lr_only_inference(cfg: dict) -> None:
 
     save_display_png(lr_img, output_dir / "lr_display.png")
     save_display_png(sr_img, output_dir / "sr_display.png")
+
+    for i in range(lr_img.shape[2]):
+        cv2.imwrite(str(output_dir / f"lr_band_{i + 1}.png"), lr_img[:, :, i])
+    for i in range(sr_img.shape[2]):
+        cv2.imwrite(str(output_dir / f"sr_band_{i + 1}.png"), sr_img[:, :, i])
+
     logging.info("LR-only inference complete. Outputs: %s", output_dir)
 
 

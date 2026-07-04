@@ -5,10 +5,11 @@ API endpoints for SwinIR inference.
 """
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse, FileResponse
 
 from ..schemas.inference import (
@@ -279,16 +280,18 @@ async def start_lr_only_inference(req: LROnlyInferenceRequest):
     return JobResponse(job_id=job_id, status="pending")
 
 
+_RESULT_FILE_RE = re.compile(r'^(lr|sr|hr)_(display|band_[1-9]\d*)\.png$')
+
+
 @router.get("/raw/result/{job_id}/{filename}")
 def get_raw_result_image(job_id: str, filename: str):
     """
-    Serve a result PNG (lr_display.png, sr_display.png, hr_display.png)
-    from the job's output_dir.
+    Serve a result PNG — display composites or per-band grayscale images.
+    Accepted: lr_display.png, sr_display.png, hr_display.png,
+              lr_band_N.png, sr_band_N.png, hr_band_N.png
     """
-    # Validate filename to prevent path traversal
-    allowed = {"lr_display.png", "sr_display.png", "hr_display.png"}
-    if filename not in allowed:
-        raise HTTPException(status_code=400, detail=f"Invalid filename. Allowed: {sorted(allowed)}")
+    if not _RESULT_FILE_RE.match(filename):
+        raise HTTPException(status_code=400, detail="Invalid filename.")
 
     summary = job_manager.get_job_summary(job_id)
     if summary is None:
@@ -324,6 +327,46 @@ def get_raw_metrics(job_id: str):
 
     with open(metrics_path, "r", encoding="utf-8") as fh:
         return json.load(fh)
+
+
+@router.get("/image-info")
+def get_image_info(path: str = Query(..., description="Absolute or project-relative path to image file")):
+    """
+    Return band count and pixel dimensions for a satellite or standard image.
+    Tries rasterio first (for GeoTIFF/JP2), falls back to cv2.
+    """
+    file_path = Path(path)
+    if not file_path.is_absolute():
+        file_path = PROJECT_ROOT / file_path
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Try rasterio for geospatial formats
+    try:
+        import rasterio
+        with rasterio.open(str(file_path)) as src:
+            return {
+                "bands": src.count,
+                "width": src.width,
+                "height": src.height,
+                "format": "geospatial",
+                "crs": str(src.crs) if src.crs else None,
+            }
+    except Exception:
+        pass
+
+    # Fallback: cv2 for standard image formats
+    try:
+        import cv2 as _cv2
+        img = _cv2.imread(str(file_path), _cv2.IMREAD_UNCHANGED)
+        if img is not None:
+            h, w = img.shape[:2]
+            b = img.shape[2] if img.ndim == 3 else 1
+            return {"bands": b, "width": w, "height": h, "format": "standard", "crs": None}
+    except Exception:
+        pass
+
+    raise HTTPException(status_code=400, detail="Could not read image metadata.")
 
 
 

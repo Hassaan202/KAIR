@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { startPipeline3, startRunPipeline, stopPreprocessing } from '../api/client'
 import LogConsole from '../components/LogConsole'
 import {
@@ -295,8 +295,42 @@ function RunPipelineForm({ onJobStart }) {
   const [form, setForm] = useState(DEFAULT_RP)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const fileInputRef = useRef(null)
 
   const set = (path, value) => setForm((prev) => deepSet(prev, path, value))
+
+  const handleLoadDegradationFile = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const loaded = JSON.parse(ev.target.result)
+        setForm(prev => ({ ...prev, ...loaded }))
+      } catch {
+        alert('Invalid JSON file.')
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  const handleSaveDegradationFile = () => {
+    const cfg = {
+      degradation_type: form.degradation_type,
+      bsrgan: form.bsrgan,
+      real_esrgan: form.real_esrgan,
+      bsrgan_plus: form.bsrgan_plus,
+      satellite: form.satellite,
+    }
+    const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `degradation_${form.degradation_type}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -362,6 +396,23 @@ function RunPipelineForm({ onJobStart }) {
 
       {form.pipeline_mode === 'hr_only' && (
         <CollapsibleSection title="Degradation" defaultOpen>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            style={{ display: 'none' }}
+            onChange={handleLoadDegradationFile}
+          />
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+            <button type="button" className="btn" style={{ fontSize: 12, padding: '5px 12px' }}
+              onClick={() => fileInputRef.current?.click()}>
+              ↑ Load from file
+            </button>
+            <button type="button" className="btn" style={{ fontSize: 12, padding: '5px 12px' }}
+              onClick={handleSaveDegradationFile}>
+              ↓ Save config
+            </button>
+          </div>
           <SelectField label="Degradation type" value={form.degradation_type}
             onChange={(v) => set('degradation_type', v)}
             options={['bsrgan', 'real_esrgan', 'bsrgan_plus', 'satellite']} />

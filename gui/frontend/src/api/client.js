@@ -28,6 +28,7 @@ export const startRawPairedInference = (data) => api.post('/inference/raw-paired
 export const startLROnlyInference = (data) => api.post('/inference/lr-only/start', data)
 export const getRawInferenceMetrics = (jobId) => api.get(`/inference/raw/metrics/${jobId}`)
 export const getRawResultImageUrl = (jobId, filename) => `/api/inference/raw/result/${jobId}/${filename}`
+export const getImageInfo = (path) => api.get('/inference/image-info', { params: { path } })
 
 // ── Preprocessing ─────────────────────────────────────────────────────────────
 export const startPipeline3 = (data) => api.post('/preprocessing/pipeline3/start', data)

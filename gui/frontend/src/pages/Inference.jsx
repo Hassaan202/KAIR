@@ -4,7 +4,7 @@ import {
   getConfigFromOptions, getConfigFromPath,
   startInference, stopInference,
   startRawPairedInference, startLROnlyInference,
-  getRawInferenceMetrics, getRawResultImageUrl, openLogStream,
+  getRawInferenceMetrics, getRawResultImageUrl, getImageInfo, openLogStream,
 } from '../api/client'
 import LogConsole from '../components/LogConsole'
 import {
@@ -355,6 +355,153 @@ function ImageViewer({ images }) {
   )
 }
 
+/* ─── Band checkbox selector ────────────────────────────────── */
+function BandCheckboxSelector({ totalBands, selectedBands, onChange, label }) {
+  const toggle = (b) => {
+    if (selectedBands.includes(b)) {
+      onChange(selectedBands.filter(x => x !== b))
+    } else {
+      onChange([...selectedBands, b])
+    }
+  }
+  const all = Array.from({ length: totalBands }, (_, i) => i + 1)
+  return (
+    <div className="form-group">
+      <label>{label} <span className="hint">click to select · order = display channel order</span></label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+        {all.map(b => {
+          const pos = selectedBands.indexOf(b)
+          const checked = pos !== -1
+          return (
+            <button key={b} type="button"
+              onClick={() => toggle(b)}
+              style={{
+                padding: '4px 10px', fontSize: 12, borderRadius: 'var(--radius-sm)',
+                border: `1px solid ${checked ? 'var(--cobalt-deep)' : 'var(--line-2)'}`,
+                background: checked ? 'var(--cobalt-soft)' : 'var(--surface)',
+                color: checked ? 'var(--cobalt-deep)' : 'var(--ink-3)',
+                fontWeight: checked ? 600 : 400, cursor: 'pointer', transition: 'all 0.12s',
+                position: 'relative',
+              }}>
+              {checked && (
+                <span style={{
+                  position: 'absolute', top: -6, right: -4, fontSize: 9, fontWeight: 700,
+                  background: 'var(--cobalt-deep)', color: '#fff', borderRadius: 6,
+                  padding: '1px 4px', lineHeight: 1,
+                }}>{pos + 1}</span>
+              )}
+              Band {b}
+            </button>
+          )
+        })}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+        Selected (display order): [{selectedBands.join(', ')}]
+      </div>
+    </div>
+  )
+}
+
+/* ─── Image metadata pill ───────────────────────────────────── */
+function MetaPill({ meta }) {
+  if (!meta) return null
+  return (
+    <div style={{
+      display: 'inline-flex', gap: 10, fontSize: 11, color: 'var(--cobalt-deep)',
+      background: 'var(--cobalt-soft)', borderRadius: 'var(--radius-sm)',
+      padding: '4px 10px', marginTop: 4, flexWrap: 'wrap',
+    }}>
+      <span>{meta.bands} band{meta.bands !== 1 ? 's' : ''}</span>
+      <span>·</span>
+      <span>{meta.width} × {meta.height} px</span>
+      {meta.format && <><span>·</span><span>{meta.format}</span></>}
+    </div>
+  )
+}
+
+/* ─── Per-band image viewer ─────────────────────────────────── */
+function BandImageViewer({ jobId, nBands, lrBands, hrBands, paired }) {
+  const [lightbox, setLightbox] = useState(null)
+  if (!jobId || nBands < 1) return null
+
+  const makeRow = (prefix, bands, title) => (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{title}</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {Array.from({ length: nBands }, (_, i) => {
+          const spectral = bands?.[i]
+          const url = getRawResultImageUrl(jobId, `${prefix}_band_${i + 1}.png`)
+          const label = spectral ? `Spectral ${spectral}` : `Band ${i + 1}`
+          return (
+            <div key={i} style={{ flex: '1 1 100px', minWidth: 90, cursor: 'pointer' }}
+              onClick={() => setLightbox({ url, label })}>
+              <img src={url} alt={label}
+                style={{ width: '100%', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line-2)', objectFit: 'cover', aspectRatio: '1/1', background: 'var(--bg-2)', filter: 'grayscale(1)' }}
+                onError={e => { e.target.style.opacity = 0.25 }} />
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 3, textAlign: 'center' }}>{label}</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12, color: 'var(--ink-1)' }}>Individual Bands</div>
+      {makeRow('lr', lrBands, 'LR — input bands')}
+      {makeRow('sr', lrBands, 'SR — output bands')}
+      {paired && makeRow('hr', hrBands, 'HR — reference bands')}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.87)', zIndex: 9999,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out',
+        }}>
+          <div style={{ color: '#fff', fontSize: 14, fontWeight: 600, marginBottom: 10 }}>{lightbox.label}</div>
+          <img src={lightbox.url} alt={lightbox.label} style={{ maxWidth: '88vw', maxHeight: '82vh', borderRadius: 8 }} />
+          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 8 }}>click to close</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ─── Per-band metrics table ────────────────────────────────── */
+function PerBandMetricsTable({ perBand, lrBands }) {
+  if (!perBand || Object.keys(perBand).length === 0) return null
+  const entries = Object.entries(perBand)
+  const fmt = v => (typeof v === 'number' && isFinite(v)) ? v.toFixed(4) : '—'
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: 'var(--ink-1)' }}>Per-Band Metrics</div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: '2px solid var(--line-2)' }}>
+              <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--ink-2)', fontWeight: 600 }}>Band</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px', color: 'var(--ink-2)', fontWeight: 600 }}>PSNR</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px', color: 'var(--ink-2)', fontWeight: 600 }}>SSIM</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map(([key, vals], i) => {
+              const spectral = lrBands?.[i]
+              const rowLabel = spectral ? `Spectral ${spectral} (ch ${i + 1})` : key
+              return (
+                <tr key={key} style={{ borderBottom: '1px solid var(--line-2)' }}>
+                  <td style={{ padding: '6px 10px', color: 'var(--ink-2)' }}>{rowLabel}</td>
+                  <td style={{ textAlign: 'right', padding: '6px 10px', fontFamily: 'monospace', color: 'var(--ink-1)' }}>{fmt(vals.psnr)}</td>
+                  <td style={{ textAlign: 'right', padding: '6px 10px', fontFamily: 'monospace', color: 'var(--ink-1)' }}>{fmt(vals.ssim)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 /* ─── TAB 1: Patched Images (existing) ─────────────────────── */
 
 /**
@@ -553,11 +700,29 @@ function RawPairedTab({ tasks, optionsFiles }) {
   const [error, setError] = useState('')
   const [metrics, setMetrics] = useState(null)
   const [metricsError, setMetricsError] = useState('')
-  // jobIdRef keeps the latest jobId accessible inside callbacks without stale closures
+  const [lrMeta, setLrMeta] = useState(null)
+  const [hrMeta, setHrMeta] = useState(null)
   const jobIdRef = useRef(null)
 
   const setMC = (path, value) => setModelConfig(prev => deepSet(prev, path, value))
   const setCfg = (key, value) => setConfig(prev => ({ ...prev, [key]: value }))
+
+  // Auto-fetch image metadata when paths change
+  useEffect(() => {
+    if (!config.lr_path.trim()) { setLrMeta(null); return }
+    const t = setTimeout(() => {
+      getImageInfo(config.lr_path).then(r => setLrMeta(r.data)).catch(() => setLrMeta(null))
+    }, 700)
+    return () => clearTimeout(t)
+  }, [config.lr_path])
+
+  useEffect(() => {
+    if (!config.hr_path.trim()) { setHrMeta(null); return }
+    const t = setTimeout(() => {
+      getImageInfo(config.hr_path).then(r => setHrMeta(r.data)).catch(() => setHrMeta(null))
+    }, 700)
+    return () => clearTimeout(t)
+  }, [config.hr_path])
 
   useEffect(() => {
     if (modelSource === 'auto' && selectedTask) {
@@ -621,14 +786,24 @@ function RawPairedTab({ tasks, optionsFiles }) {
             <div className="card-title">Input Images</div>
             <TextField label="LR raw image path" value={config.lr_path}
               onChange={v => setCfg('lr_path', v)} placeholder="/path/to/lr.tif" mono />
+            <MetaPill meta={lrMeta} />
             <TextField label="HR raw image path" hint="ground truth"
               value={config.hr_path} onChange={v => setCfg('hr_path', v)} placeholder="/path/to/hr.tif" mono />
-            <div className="grid-2">
-              <ArrayEditor label="LR RGB bands" value={config.lr_bands}
-                onChange={v => setCfg('lr_bands', v)} />
-              <ArrayEditor label="HR RGB bands" value={config.hr_bands}
-                onChange={v => setCfg('hr_bands', v)} />
-            </div>
+            <MetaPill meta={hrMeta} />
+            {lrMeta ? (
+              <BandCheckboxSelector
+                totalBands={lrMeta.bands} selectedBands={config.lr_bands}
+                onChange={v => setCfg('lr_bands', v)} label="LR display bands" />
+            ) : (
+              <ArrayEditor label="LR RGB bands" value={config.lr_bands} onChange={v => setCfg('lr_bands', v)} />
+            )}
+            {hrMeta ? (
+              <BandCheckboxSelector
+                totalBands={hrMeta.bands} selectedBands={config.hr_bands}
+                onChange={v => setCfg('hr_bands', v)} label="HR display bands" />
+            ) : (
+              <ArrayEditor label="HR RGB bands" value={config.hr_bands} onChange={v => setCfg('hr_bands', v)} />
+            )}
             <TextField label="Output directory" value={config.output_dir}
               onChange={v => setCfg('output_dir', v)} placeholder="testsets/raw_inference_output" mono />
             <div className="grid-2">
@@ -669,7 +844,11 @@ function RawPairedTab({ tasks, optionsFiles }) {
           <div className="card" style={{ marginTop: 16 }}>
             <div className="card-title">Results</div>
             {resultImages.length > 0 && <ImageViewer images={resultImages} />}
+            <BandImageViewer
+              jobId={jobId} nBands={config.lr_bands.length}
+              lrBands={config.lr_bands} hrBands={config.hr_bands} paired />
             <MetricsTable metrics={metrics} />
+            <PerBandMetricsTable perBand={metrics?.per_band} lrBands={config.lr_bands} />
             {!metrics && !metricsError && (
               <div style={{ marginTop: 16, fontSize: 12, color: 'var(--ink-3)' }}>
                 Loading metrics…
@@ -699,8 +878,9 @@ function RawPairedTab({ tasks, optionsFiles }) {
               SwinIR runs on overlapping patches which are stitched together using a Hann-window blend.
             </p>
             <p className="text-muted text-sm" style={{ lineHeight: 1.6, marginTop: 10 }}>
-              Outputs: <strong>LR · SR · HR display images</strong> + a full <strong>8-metric comparison table</strong>
-              (PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER) against the bicubic baseline.
+              Outputs: <strong>LR · SR · HR display images</strong> + per-band grayscale images + a full
+              <strong> 8-metric comparison table</strong> (PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER)
+              with per-band PSNR/SSIM breakdown.
             </p>
           </div>
         )}
@@ -726,9 +906,18 @@ function LROnlyTab({ tasks, optionsFiles }) {
   const [jobDone, setJobDone] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [lrMeta, setLrMeta] = useState(null)
 
   const setMC = (path, value) => setModelConfig(prev => deepSet(prev, path, value))
   const setCfg = (key, value) => setConfig(prev => ({ ...prev, [key]: value }))
+
+  useEffect(() => {
+    if (!config.lr_path.trim()) { setLrMeta(null); return }
+    const t = setTimeout(() => {
+      getImageInfo(config.lr_path).then(r => setLrMeta(r.data)).catch(() => setLrMeta(null))
+    }, 700)
+    return () => clearTimeout(t)
+  }, [config.lr_path])
 
   useEffect(() => {
     if (modelSource === 'auto' && selectedTask) {
@@ -777,8 +966,14 @@ function LROnlyTab({ tasks, optionsFiles }) {
             <div className="card-title">Input Image</div>
             <TextField label="LR raw image path" value={config.lr_path}
               onChange={v => setCfg('lr_path', v)} placeholder="/path/to/image.tif" mono />
-            <ArrayEditor label="LR RGB bands" value={config.lr_bands}
-              onChange={v => setCfg('lr_bands', v)} />
+            <MetaPill meta={lrMeta} />
+            {lrMeta ? (
+              <BandCheckboxSelector
+                totalBands={lrMeta.bands} selectedBands={config.lr_bands}
+                onChange={v => setCfg('lr_bands', v)} label="LR display bands" />
+            ) : (
+              <ArrayEditor label="LR RGB bands" value={config.lr_bands} onChange={v => setCfg('lr_bands', v)} />
+            )}
             <TextField label="Output directory" value={config.output_dir}
               onChange={v => setCfg('output_dir', v)} placeholder="testsets/raw_inference_output/lr_only" mono />
             <div className="grid-2">
@@ -806,6 +1001,9 @@ function LROnlyTab({ tasks, optionsFiles }) {
           <div className="card" style={{ marginTop: 16 }}>
             <div className="card-title">Results</div>
             <ImageViewer images={resultImages} />
+            <BandImageViewer
+              jobId={jobId} nBands={config.lr_bands.length}
+              lrBands={config.lr_bands} paired={false} />
           </div>
         )}
         {!jobId && (
@@ -818,7 +1016,8 @@ function LROnlyTab({ tasks, optionsFiles }) {
             </p>
             <p className="text-muted text-sm" style={{ lineHeight: 1.6, marginTop: 10 }}>
               Supports GeoTIFF, JP2, PNG, and other standard image formats.
-              Band selection applies only to multi-band geospatial files.
+              Band selection applies only to multi-band geospatial files. After inference,
+              individual band grayscale images are shown alongside the RGB composite.
             </p>
           </div>
         )}
