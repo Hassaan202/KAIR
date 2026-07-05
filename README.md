@@ -85,9 +85,6 @@ python raw_inference.py --config config_lr_only.json
 ```
 
 For full configuration details see [USAGE.md](USAGE.md).
-
-For the complete end-to-end manual (architecture, flowcharts, config reference, GUI guide), see [USER_MANUAL.md](USER_MANUAL.md).
-
 ---
 
 ## Metrics
