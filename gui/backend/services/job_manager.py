@@ -156,7 +156,7 @@ async def stream_logs(job_id: str) -> AsyncGenerator[str, None]:
             logs_snapshot = list(job.logs)
             for line in logs_snapshot[sent:]:
                 yield f"data: {line}\n\n"
-            yield f"event: status\ndata: {job.status}\n\n"
+            yield f"event: status\ndata: {job.status.value}\n\n"
             break
 
         await asyncio.sleep(0.3)
