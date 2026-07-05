@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import ReactCompareImage from 'react-compare-image'
 import {
   listInferenceTasks, listTrainingConfigs, getLatestModel,
   getConfigFromOptions, getConfigFromPath,
@@ -352,6 +353,57 @@ function ImageViewer({ images }) {
         </div>
       )}
     </>
+  )
+}
+
+/* ─── LR / SR slider comparison ─────────────────────────────── */
+function ImageCompareSlider({ lrUrl, srUrl, title = 'LR ↔ SR Comparison' }) {
+  const [lrLoaded, setLrLoaded] = useState(false)
+  const [srLoaded, setSrLoaded] = useState(false)
+  const [lrErr, setLrErr] = useState(false)
+  const [srErr, setSrErr] = useState(false)
+
+  // Preload both images before showing the slider
+  useEffect(() => {
+    setLrLoaded(false); setSrLoaded(false); setLrErr(false); setSrErr(false)
+    const imgLr = new Image(); imgLr.src = lrUrl
+    imgLr.onload = () => setLrLoaded(true)
+    imgLr.onerror = () => setLrErr(true)
+    const imgSr = new Image(); imgSr.src = srUrl
+    imgSr.onload = () => setSrLoaded(true)
+    imgSr.onerror = () => setSrErr(true)
+  }, [lrUrl, srUrl])
+
+  const ready = lrLoaded && srLoaded
+  const hasError = lrErr || srErr
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: 'var(--ink-1)' }}>{title}</div>
+      <div style={{
+        borderRadius: 'var(--radius-sm)', overflow: 'hidden',
+        border: '1px solid var(--line-2)', background: 'var(--bg-2)',
+        minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {hasError ? (
+          <div style={{ fontSize: 12, color: 'var(--bad)', padding: 20 }}>Could not load one or both images for comparison.</div>
+        ) : !ready ? (
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', padding: 20 }}>Loading images…</div>
+        ) : (
+          <ReactCompareImage
+            leftImage={lrUrl}
+            rightImage={srUrl}
+            leftImageLabel="LR"
+            rightImageLabel="SR"
+            sliderLineColor="var(--cobalt-deep)"
+            sliderHandleColor="var(--cobalt-deep)"
+          />
+        )}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 6, textAlign: 'center' }}>
+        Drag the slider to compare LR (left) and SR (right)
+      </div>
+    </div>
   )
 }
 
@@ -843,7 +895,19 @@ function RawPairedTab({ tasks, optionsFiles }) {
         {jobDone && (
           <div className="card" style={{ marginTop: 16 }}>
             <div className="card-title">Results</div>
+
+            {/* LR / HR / SR side-by-side */}
             {resultImages.length > 0 && <ImageViewer images={resultImages} />}
+
+            {/* LR ↔ SR slider */}
+            {jobId && (
+              <ImageCompareSlider
+                lrUrl={getRawResultImageUrl(jobId, 'lr_display.png')}
+                srUrl={getRawResultImageUrl(jobId, 'sr_display.png')}
+                title="LR ↔ SR Comparison"
+              />
+            )}
+
             <BandImageViewer
               jobId={jobId} nBands={config.lr_bands.length}
               lrBands={config.lr_bands} hrBands={config.hr_bands} paired />
@@ -1001,6 +1065,14 @@ function LROnlyTab({ tasks, optionsFiles }) {
           <div className="card" style={{ marginTop: 16 }}>
             <div className="card-title">Results</div>
             <ImageViewer images={resultImages} />
+            {/* LR ↔ SR slider */}
+            {jobId && (
+              <ImageCompareSlider
+                lrUrl={getRawResultImageUrl(jobId, 'lr_display.png')}
+                srUrl={getRawResultImageUrl(jobId, 'sr_display.png')}
+                title="LR ↔ SR Comparison"
+              />
+            )}
             <BandImageViewer
               jobId={jobId} nBands={config.lr_bands.length}
               lrBands={config.lr_bands} paired={false} />
