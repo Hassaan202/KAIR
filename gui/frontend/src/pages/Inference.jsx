@@ -357,13 +357,13 @@ function ImageViewer({ images }) {
 }
 
 /* ─── LR / SR slider comparison ─────────────────────────────── */
-function ImageCompareSlider({ lrUrl, srUrl, title = 'LR ↔ SR Comparison' }) {
+function ImageCompareSlider({ lrUrl, srUrl, title = 'LR vs SR Comparison' }) {
   const [lrLoaded, setLrLoaded] = useState(false)
   const [srLoaded, setSrLoaded] = useState(false)
   const [lrErr, setLrErr] = useState(false)
   const [srErr, setSrErr] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
 
-  // Preload both images before showing the slider
   useEffect(() => {
     setLrLoaded(false); setSrLoaded(false); setLrErr(false); setSrErr(false)
     const imgLr = new Image(); imgLr.src = lrUrl
@@ -374,36 +374,134 @@ function ImageCompareSlider({ lrUrl, srUrl, title = 'LR ↔ SR Comparison' }) {
     imgSr.onerror = () => setSrErr(true)
   }, [lrUrl, srUrl])
 
+  useEffect(() => {
+    if (!fullscreen) return
+    const handler = (e) => { if (e.key === 'Escape') setFullscreen(false) }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [fullscreen])
+
   const ready = lrLoaded && srLoaded
   const hasError = lrErr || srErr
 
+  const sliderNode = (
+    <ReactCompareImage
+      leftImage={lrUrl}
+      rightImage={srUrl}
+      leftImageLabel="LR"
+      rightImageLabel="SR"
+      sliderLineColor="var(--cobalt-deep)"
+      sliderHandleColor="var(--cobalt-deep)"
+    />
+  )
+
   return (
-    <div style={{ marginTop: 24 }}>
-      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: 'var(--ink-1)' }}>{title}</div>
-      <div style={{
-        borderRadius: 'var(--radius-sm)', overflow: 'hidden',
-        border: '1px solid var(--line-2)', background: 'var(--bg-2)',
-        minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        {hasError ? (
-          <div style={{ fontSize: 12, color: 'var(--bad)', padding: 20 }}>Could not load one or both images for comparison.</div>
-        ) : !ready ? (
-          <div style={{ fontSize: 12, color: 'var(--ink-3)', padding: 20 }}>Loading images…</div>
-        ) : (
-          <ReactCompareImage
-            leftImage={lrUrl}
-            rightImage={srUrl}
-            leftImageLabel="LR"
-            rightImageLabel="SR"
-            sliderLineColor="var(--cobalt-deep)"
-            sliderHandleColor="var(--cobalt-deep)"
-          />
-        )}
+    <>
+      <div style={{ marginTop: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink-1)' }}>{title}</div>
+          {ready && (
+            <button
+              type="button"
+              onClick={() => setFullscreen(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '4px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--cobalt-soft)', color: 'var(--cobalt-deep)',
+                border: '1px solid var(--cobalt-deep)', transition: 'background 0.15s, color 0.15s',
+              }}
+            >
+              <span style={{ fontSize: 13 }}>&#x26F6;</span> Fullscreen
+            </button>
+          )}
+        </div>
+
+        <div style={{
+          borderRadius: 'var(--radius-sm)', overflow: 'hidden',
+          border: '1px solid var(--line-2)', background: 'var(--bg-2)',
+          minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {hasError ? (
+            <div style={{ fontSize: 12, color: 'var(--bad)', padding: 20 }}>Could not load one or both images for comparison.</div>
+          ) : !ready ? (
+            <div style={{ fontSize: 12, color: 'var(--ink-3)', padding: 20 }}>Loading images...</div>
+          ) : sliderNode}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 6, textAlign: 'center' }}>
+          Drag the slider to compare LR (left) and SR (right)
+          {ready && (
+            <> &middot; <span style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setFullscreen(true)}>open fullscreen</span></>
+          )}
+        </div>
       </div>
-      <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 6, textAlign: 'center' }}>
-        Drag the slider to compare LR (left) and SR (right)
-      </div>
-    </div>
+
+      {fullscreen && (
+        <div
+          onClick={() => setFullscreen(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.93)',
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          {/* Top bar */}
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: 'absolute', top: 0, left: 0, right: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '14px 24px',
+              background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(10px)',
+            }}
+          >
+            <div style={{ color: '#fff', fontWeight: 600, fontSize: 15, letterSpacing: '0.01em' }}>{title}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>Drag handle to compare &middot; ESC to close</span>
+              <button
+                type="button"
+                onClick={() => setFullscreen(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.25)',
+                  color: '#fff', borderRadius: 6, padding: '5px 16px', cursor: 'pointer',
+                  fontSize: 13, fontWeight: 500,
+                }}
+              >
+                &#x2715; Close
+              </button>
+            </div>
+          </div>
+
+          {/* Slider panel */}
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '94vw', height: '84vh', marginTop: 58,
+              borderRadius: 10, overflow: 'hidden',
+              boxShadow: '0 0 100px rgba(0,0,0,0.8)',
+            }}
+          >
+            <ReactCompareImage
+              leftImage={lrUrl}
+              rightImage={srUrl}
+              leftImageLabel="LR"
+              rightImageLabel="SR"
+              sliderLineColor="#5b9cf6"
+              sliderHandleColor="#5b9cf6"
+            />
+          </div>
+
+          <div style={{
+            marginTop: 14, display: 'flex', gap: 40,
+            fontSize: 12, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em',
+          }}>
+            <span>&#9664; LR (Low Resolution)</span>
+            <span>SR (Super-Resolved) &#9654;</span>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
