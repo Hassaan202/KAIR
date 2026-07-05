@@ -440,47 +440,41 @@ function ImageCompareSlider({ lrUrl, srUrl, title = 'LR vs SR Comparison' }) {
         <div
           onClick={() => setFullscreen(false)}
           style={{
-            position: 'fixed', inset: 0, zIndex: 9999,
-            background: 'rgba(0,0,0,0.93)',
+            position: 'fixed', inset: 0, zIndex: 100000,
+            background: '#0a0a0a',
             display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
           }}
         >
-          {/* Top bar */}
+          {/* Top bar — in-flow, not absolute */}
           <div
             onClick={e => e.stopPropagation()}
             style={{
-              position: 'absolute', top: 0, left: 0, right: 0,
+              flexShrink: 0, height: 52,
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '14px 24px',
-              background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(10px)',
+              padding: '0 20px',
+              background: 'rgba(255,255,255,0.05)', borderBottom: '1px solid rgba(255,255,255,0.1)',
             }}
           >
-            <div style={{ color: '#fff', fontWeight: 600, fontSize: 15, letterSpacing: '0.01em' }}>{title}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>Drag handle to compare &middot; ESC to close</span>
+            <span style={{ color: '#fff', fontWeight: 600, fontSize: 14 }}>{title}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>Drag handle to compare · ESC to close</span>
               <button
                 type="button"
                 onClick={() => setFullscreen(false)}
                 style={{
-                  background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.25)',
-                  color: '#fff', borderRadius: 6, padding: '5px 16px', cursor: 'pointer',
-                  fontSize: 13, fontWeight: 500,
+                  background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
+                  color: '#fff', borderRadius: 6, padding: '4px 14px', cursor: 'pointer', fontSize: 13,
                 }}
               >
-                &#x2715; Close
+                ✕ Close
               </button>
             </div>
           </div>
 
-          {/* Slider panel */}
+          {/* Slider — takes all remaining height */}
           <div
             onClick={e => e.stopPropagation()}
-            style={{
-              width: '94vw', height: '84vh', marginTop: 58,
-              borderRadius: 10, overflow: 'hidden',
-              boxShadow: '0 0 100px rgba(0,0,0,0.8)',
-            }}
+            style={{ flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'stretch' }}
           >
             <ReactCompareImage
               leftImage={lrUrl}
@@ -492,12 +486,18 @@ function ImageCompareSlider({ lrUrl, srUrl, title = 'LR vs SR Comparison' }) {
             />
           </div>
 
-          <div style={{
-            marginTop: 14, display: 'flex', gap: 40,
-            fontSize: 12, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em',
-          }}>
-            <span>&#9664; LR (Low Resolution)</span>
-            <span>SR (Super-Resolved) &#9654;</span>
+          {/* Bottom label */}
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              flexShrink: 0, height: 36,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '0 28px', fontSize: 12,
+              color: 'rgba(255,255,255,0.35)', borderTop: '1px solid rgba(255,255,255,0.07)',
+            }}
+          >
+            <span>◀ LR (Low Resolution)</span>
+            <span>SR (Super-Resolved) ▶</span>
           </div>
         </div>
       )}
