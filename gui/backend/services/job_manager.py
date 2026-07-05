@@ -8,6 +8,7 @@ import asyncio
 import os
 import signal
 import subprocess
+import sys
 import traceback
 import uuid
 from collections import deque
@@ -85,6 +86,13 @@ async def launch_job(job_id: str) -> None:
     job.status = JobStatus.RUNNING
     env = {**os.environ}
 
+    # On Windows, spawn the child in its own process group so that signals
+    # (Ctrl+C / SIGTERM) sent to the uvicorn parent do NOT propagate into the
+    # child and interrupt numpy/torch imports with a KeyboardInterrupt.
+    extra_kwargs: dict = {}
+    if sys.platform == "win32":
+        extra_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+
     try:
         proc = subprocess.Popen(
             job.cmd,
@@ -92,6 +100,7 @@ async def launch_job(job_id: str) -> None:
             stderr=subprocess.STDOUT,
             cwd=job.cwd,
             env=env,
+            **extra_kwargs,
         )
         job.process = proc
 
@@ -159,8 +168,13 @@ def cancel_job(job_id: str) -> bool:
         return False
     if job.process and job.process.returncode is None:
         try:
-            os.kill(job.process.pid, signal.SIGTERM)
-        except ProcessLookupError:
+            if sys.platform == "win32":
+                # SIGTERM doesn't exist on Windows; use CTRL_BREAK_EVENT which
+                # is compatible with CREATE_NEW_PROCESS_GROUP children.
+                os.kill(job.process.pid, signal.CTRL_BREAK_EVENT)
+            else:
+                os.kill(job.process.pid, signal.SIGTERM)
+        except (ProcessLookupError, OSError):
             pass
     job.status = JobStatus.CANCELLED
     return True
