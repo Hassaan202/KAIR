@@ -11,6 +11,7 @@ This file covers all usage instructions for SwinIR training, testing, and remote
 3. [Training](#2-training)
 4. [Testing](#3-testing)
 5. [Visual Comparison](#4-visual-comparison)
+6. [Web GUI](#5-web-gui)
 
 ---
 
@@ -560,19 +561,65 @@ python raw_inference.py --config config.json
     "mode": "paired",
     "lr_path": "path/to/lr.tif",
     "hr_path": "path/to/hr.tif",
+    "lr_bands": [3, 2, 1],
+    "hr_bands": [1, 2, 3],
     "model_path": "superresolution/task/models/best_E.pth",
     "output_dir": "testsets/raw_inference_output",
     "scale_factor": 2,
     "patch_size": 128,
     "overlap": 32,
     "enable_preprocessing": true,
+    "nodata_value": 0,
+    "saturated_value": 32767,
+    "clip_percentiles": [2.0, 98.0],
+    "coreg_a_enabled": true,
+    "coreg_a_max_features": 8000,
+    "coreg_a_match_ratio": 0.75,
+    "coreg_a_ransac_thresh": 4.0,
+    "coreg_b_enabled": true,
+    "coreg_b_upsample_factor": 100,
+    "radiometric_enabled": true,
+    "radiometric_block_size": 256,
+    "radiometric_rmse_threshold": 35.0,
+    "radiometric_post_hist_match": true,
     "model_config": {
         "upscale": 2, "in_chans": 3, "img_size": 128, "window_size": 8,
+        "img_range": 1.0,
         "depths": [6,6,6,6,6,6], "embed_dim": 180, "num_heads": [6,6,6,6,6,6],
         "mlp_ratio": 2, "upsampler": "pixelshuffle", "resi_connection": "1conv"
     }
 }
 ```
+
+**Configuration Key Reference:**
+
+| Key | Description |
+|-----|-------------|
+| `mode` | `"paired"` (LR + HR) or `"lr_only"` (LR only, no metrics) |
+| `lr_path` | Path to the LR image (GeoTIFF, JP2, PNG, etc.) |
+| `hr_path` | Path to the HR image (paired mode only) |
+| `lr_bands` | Band indices for LR sensor RGB extraction (e.g. `[3, 2, 1]` for Pleiades 1A) |
+| `hr_bands` | Band indices for HR sensor RGB extraction (e.g. `[1, 2, 3]` for Pleiades Neo) |
+| `model_path` | Path to the trained `.pth` checkpoint |
+| `output_dir` | Directory where all outputs are written |
+| `scale_factor` | SR upscaling factor (must match the trained model) |
+| `patch_size` | LR patch size for inference (e.g. `128`) |
+| `overlap` | Overlap between adjacent patches in pixels (reduces seam artefacts) |
+| `enable_preprocessing` | If `true`, runs the full pipeline3 alignment stack before SR |
+| `nodata_value` | Pixel value treated as nodata in GeoTIFF images |
+| `saturated_value` | Pixel value treated as saturated (excluded from percentile estimation) |
+| `clip_percentiles` | `[low, high]` percentile bounds for 16-bit to 8-bit scaling |
+| `coreg_a_enabled` | Enable Stage A ORB coregistration |
+| `coreg_a_max_features` | Max ORB features to detect |
+| `coreg_a_match_ratio` | Lowe ratio test threshold |
+| `coreg_a_ransac_thresh` | RANSAC inlier threshold (pixels in overview space) |
+| `coreg_b_enabled` | Enable Stage B phase correlation |
+| `coreg_b_upsample_factor` | Sub-pixel refinement factor |
+| `radiometric_enabled` | Enable radiometric regression (LR to HR normalisation) |
+| `radiometric_block_size` | Block size for regression fitting |
+| `radiometric_rmse_threshold` | Max block RMSE; blocks above are excluded from the fit |
+| `radiometric_post_hist_match` | Apply histogram matching after linear regression |
+| `model_config` | SwinIR architecture — must match the trained checkpoint exactly |
 
 **Operating Modes:**
 - `"paired"`: Takes both an LR and HR image. Optionally runs full `pipeline3` stages (ORB, Phase Correlation, Radiometric Normalisation, Histogram Matching) to align the LR image exactly to the HR grid, enforcing an exact integer scale ratio regardless of the real sensor resolution ratio. Runs SwinIR on overlapping patches, stitches them, and computes 8 metrics (PSNR, SSIM, SAM, etc.) against the HR ground truth.
@@ -629,6 +676,52 @@ Set `sr_iteration` to a specific iteration number string to select an exact chec
 
 **Output:** One PNG per patch saved to `output_dir`, named `<patch_name><output_suffix>.png`.
 
+---
 
+## 5. Web GUI
 
+A unified Web GUI is available for all pipeline phases. See [gui/GUI_SETUP.md](gui/GUI_SETUP.md) for installation and startup instructions.
 
+### 5.1 Phase A — Preprocessing via GUI
+
+1. Navigate to `http://localhost:5173` and open the **Preprocessing** page.
+2. Select **Tab A — Pleiades Pipeline** for paired HR+LR GeoTIFF/JP2 imagery.
+3. Enter HR and LR image paths, output directory, and band indices.
+4. Toggle ORB / Phase Correlation / ECC coregistration stages independently.
+5. Set quality thresholds (`MIN_VARIANCE`, `MIN_SSIM`, `MIN_ECC_SCORE`, `MAX_NODATA_FRACTION`).
+6. Optionally enable a train/test split and set the split ratio.
+7. Click **Run Pipeline**. A temporary JSON config is written to `gui/backend/tmp/pipeline3_config.json` and passed to `pipeline3.py` via `--config`.
+8. Monitor the live log — warnings (amber), errors (red), and completion (green) are colour-coded.
+
+For HR-only datasets or existing HR+LR pairs with synthetic degradation, use **Tab B — HR Degradation Pipeline** and choose a degradation type (BSRGAN, Real-ESRGAN, BSRGAN+, or Satellite MTF).
+
+### 5.2 Phase B — Training via GUI
+
+1. Open the **Training** page.
+2. Select **PSNR Training** or **GAN Training** using the mode tabs at the top.
+3. Set the **Task Name** (this becomes the output folder under `superresolution/`).
+4. Optionally load a preset from `options/swinir/` using the **Load preset config** button.
+5. Set dataset paths, network architecture, and hyperparameters using the form.
+6. Click **Start Training**. A temporary config JSON is written to `gui/backend/tmp/` and passed via `--opt`.
+7. Monitor training loss and metrics in the live log. The **Recent Runs** panel shows all existing tasks with iteration counts.
+8. Click **Stop Job** to send `SIGTERM` and stop training gracefully.
+
+### 5.3 Phase C — Inference via GUI
+
+The **Inference** page has three tabs:
+
+**Tab 1 — Patched Images** (`main_test_swinir_config.py`)
+- Select a trained task from the dropdown (auto-populated from `superresolution/`).
+- The model config fields are auto-filled from the task's `train.json`.
+- Set LR, HR, and SR directory paths.
+- Click **Run Inference**. Results and 8 averaged metrics appear in the log.
+
+**Tab 2 — Raw HR+LR Inference** (`raw_inference.py`, `mode=paired`)
+- Enter full-resolution LR and HR file paths.
+- Set band mappings for each sensor.
+- Toggle coregistration and radiometric stages.
+- After completion, LR / SR / HR display images appear in the GUI with an interactive comparison slider.
+
+**Tab 3 — LR-Only Inference** (`raw_inference.py`, `mode=lr_only`)
+- Enter a single LR image path (any supported format).
+- After completion, the SR display image appears in the GUI.

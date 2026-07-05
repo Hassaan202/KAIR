@@ -71,7 +71,7 @@ function useConfigAutoLoad(modelSource, customModelPath, setModelConfig) {
           setConfigSource({ type: 'train_json', label: r.data.task_name })
           setSelectedOptions('')
         }
-      } catch {}
+      } catch { }
     }, 600)
     return () => clearTimeout(pathDebounceRef.current)
   }, [customModelPath, modelSource])
@@ -83,7 +83,7 @@ function useConfigAutoLoad(modelSource, customModelPath, setModelConfig) {
       const r = await getConfigFromOptions(name)
       setModelConfig({ ...DEFAULT_MODEL_CONFIG, ...r.data.model_config })
       setConfigSource({ type: 'options_file', label: name })
-    } catch {}
+    } catch { }
   }
 
   return { selectedOptions, configSource, handleOptionsSelect }
@@ -678,7 +678,7 @@ function parsePatchedMetrics(lines) {
         const key = kv[1].toLowerCase()
         const val = parseFloat(kv[2])
         if (!isNaN(val)) {
-          if (section === 'sr')    result.sr[key] = val
+          if (section === 'sr') result.sr[key] = val
           else if (section === 'lr') result.lr_bicubic[key] = val
           else if (section === 'delta') result.delta[key] = val
         }
@@ -814,7 +814,7 @@ function PatchedTab({ tasks, optionsFiles }) {
           <LogConsole
             domain="inference"
             jobId={jobId}
-            onStop={() => stopInference(jobId).catch(() => {})}
+            onStop={() => stopInference(jobId).catch(() => { })}
             onLine={handleLogLine}
             onComplete={handleComplete}
           />
@@ -983,7 +983,7 @@ function RawPairedTab({ tasks, optionsFiles }) {
           <LogConsole
             domain="inference"
             jobId={jobId}
-            onStop={() => {}}
+            onStop={() => { }}
             onComplete={() => {
               setJobDone(true)
               fetchMetrics(jobIdRef.current)
@@ -1035,7 +1035,7 @@ function RawPairedTab({ tasks, optionsFiles }) {
               to precisely align the LR image onto the HR pixel grid before inference.
             </p>
             <p className="text-muted text-sm" style={{ lineHeight: 1.6, marginTop: 10 }}>
-              The LR image is then rescaled to an <strong>exact integer ×{config.scale_factor} ratio</strong> relative to the
+              The LR image is then rescaled to an <strong>exact integer ratio</strong> relative to the
               HR dimensions, regardless of the real sensor resolution difference (e.g. 1.7×, 2.3×).
               SwinIR runs on overlapping patches which are stitched together using a Hann-window blend.
             </p>

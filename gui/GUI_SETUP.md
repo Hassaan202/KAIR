@@ -9,6 +9,8 @@ This guide covers how to install, run, and use the KAIR Super-Resolution Studio 
 - Python ≥ 3.9 with the KAIR virtualenv already set up (see [USAGE.md](USAGE.md))
 - Node.js ≥ 18 and npm ≥ 9
 
+> For a complete end-to-end reference including pipeline flowcharts, config tables, and code-level explanations, see [USER_MANUAL.md](USER_MANUAL.md).
+
 ---
 
 ## 1. Install Backend Dependencies
@@ -96,10 +98,11 @@ Runs batch inference on a directory of already-aligned LR patches against an HR 
 
 **Tab 2 — Raw HR+LR Inference (`raw_inference.py`)**
 Performs end-to-end inference on a paired raw satellite image.
+- Configure band mappings per sensor (HR and LR band indices) using the sensor profile selector
 - Automatically coregisters (ORB + Phase Correlation) and radiometrically matches LR to HR
 - Enforces an exact integer scaling factor (e.g. ×2) regardless of sensor resolution differences
 - Patches the full image, runs SR, stitches with a Hann-window blend, and computes metrics
-- Resulting SR/LR/HR display images are displayed directly in the GUI
+- Resulting SR/LR/HR display images are displayed directly in the GUI with an **interactive drag-to-compare slider** for side-by-side visual comparison
 
 **Tab 3 — LR-Only Inference (`raw_inference.py`)**
 Runs SR on a single unlabelled LR image (no HR ground truth).
@@ -194,8 +197,11 @@ Interactive Swagger UI: `http://localhost:8000/docs`
 | `/api/training/stop/{job_id}` | POST | Cancel training |
 | `/api/inference/tasks` | GET | List trained tasks |
 | `/api/inference/latest-model/{task}` | GET | Get latest model + autofilled config |
-| `/api/inference/start` | POST | Launch inference |
+| `/api/inference/start` | POST | Launch patched inference (main_test_swinir_config.py) |
+| `/api/inference/raw-paired/start` | POST | Launch raw paired inference (raw_inference.py, mode=paired) |
+| `/api/inference/lr-only/start` | POST | Launch LR-only inference (raw_inference.py, mode=lr_only) |
 | `/api/inference/stream/{job_id}` | GET | SSE log stream |
+| `/api/inference/image/{job_id}` | GET | Retrieve output display image after job completes |
 | `/api/preprocessing/pipeline3/start` | POST | Launch pipeline3.py |
 | `/api/preprocessing/run-pipeline/start` | POST | Launch run_pipeline.py |
 | `/api/preprocessing/stream/{job_id}` | GET | SSE log stream |
