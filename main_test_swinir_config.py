@@ -192,8 +192,15 @@ def main():
         level=logging.INFO,
         format="%(message)s",
         handlers=[
-            logging.FileHandler(log_dir / f"{sr_dir.name}.log"),
-            logging.StreamHandler(),
+            logging.FileHandler(log_dir / f"{sr_dir.name}.log", encoding="utf-8"),
+            logging.StreamHandler(
+                stream=open(
+                    __import__("sys").stdout.fileno(),
+                    mode="w",
+                    encoding="utf-8",
+                    closefd=False,
+                )
+            ),
         ],
     )
     logger = logging.getLogger(__name__)
@@ -260,7 +267,7 @@ def main():
 
         sr_text = "  SR:    " + "  ".join(f"{k.upper()} {sr_metrics[k]:.4f}" for k in METRIC_NAMES)
         lr_text = "  LR:    " + "  ".join(f"{k.upper()} {lr_metrics[k]:.4f}" for k in METRIC_NAMES)
-        delta_text = "  Delta: " + "  ".join(f"Δ{k.upper()} {deltas[k]:+.4f}" for k in METRIC_NAMES)
+        delta_text = "  Delta: " + "  ".join(f"d{k.upper()} {deltas[k]:+.4f}" for k in METRIC_NAMES)
         logger.info(f"{index:04d} {name}")
         logger.info(sr_text)
         logger.info(lr_text)
@@ -281,8 +288,8 @@ def main():
     logger.info("\nAverage Delta (SR - LR bicubic)  [SAM/RMSE: negative = improvement]:")
     for key in METRIC_NAMES:
         avg_delta = (totals[key] - totals[f"lr_{key}"]) / processed
-        direction = "↓ better" if key in LOWER_IS_BETTER else "↑ better"
-        logger.info(f"  Δ{key.upper()}: {avg_delta:+.4f}  ({direction})")
+        direction = "v better" if key in LOWER_IS_BETTER else "^ better"
+        logger.info(f"  d{key.upper()}: {avg_delta:+.4f}  ({direction})")
 
 
 if __name__ == "__main__":

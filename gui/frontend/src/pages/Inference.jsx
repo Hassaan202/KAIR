@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import ReactCompareImage from 'react-compare-image'
 import {
   listInferenceTasks, listTrainingConfigs, getLatestModel,
   getConfigFromOptions, getConfigFromPath,
@@ -70,7 +71,7 @@ function useConfigAutoLoad(modelSource, customModelPath, setModelConfig) {
           setConfigSource({ type: 'train_json', label: r.data.task_name })
           setSelectedOptions('')
         }
-      } catch {}
+      } catch { }
     }, 600)
     return () => clearTimeout(pathDebounceRef.current)
   }, [customModelPath, modelSource])
@@ -82,7 +83,7 @@ function useConfigAutoLoad(modelSource, customModelPath, setModelConfig) {
       const r = await getConfigFromOptions(name)
       setModelConfig({ ...DEFAULT_MODEL_CONFIG, ...r.data.model_config })
       setConfigSource({ type: 'options_file', label: name })
-    } catch {}
+    } catch { }
   }
 
   return { selectedOptions, configSource, handleOptionsSelect }
@@ -355,6 +356,155 @@ function ImageViewer({ images }) {
   )
 }
 
+/* ─── LR / SR slider comparison ─────────────────────────────── */
+function ImageCompareSlider({ lrUrl, srUrl, title = 'LR vs SR Comparison' }) {
+  const [lrLoaded, setLrLoaded] = useState(false)
+  const [srLoaded, setSrLoaded] = useState(false)
+  const [lrErr, setLrErr] = useState(false)
+  const [srErr, setSrErr] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
+
+  useEffect(() => {
+    setLrLoaded(false); setSrLoaded(false); setLrErr(false); setSrErr(false)
+    const imgLr = new Image(); imgLr.src = lrUrl
+    imgLr.onload = () => setLrLoaded(true)
+    imgLr.onerror = () => setLrErr(true)
+    const imgSr = new Image(); imgSr.src = srUrl
+    imgSr.onload = () => setSrLoaded(true)
+    imgSr.onerror = () => setSrErr(true)
+  }, [lrUrl, srUrl])
+
+  useEffect(() => {
+    if (!fullscreen) return
+    const handler = (e) => { if (e.key === 'Escape') setFullscreen(false) }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [fullscreen])
+
+  const ready = lrLoaded && srLoaded
+  const hasError = lrErr || srErr
+
+  const sliderNode = (
+    <ReactCompareImage
+      leftImage={lrUrl}
+      rightImage={srUrl}
+      leftImageLabel="LR"
+      rightImageLabel="SR"
+      sliderLineColor="var(--cobalt-deep)"
+      sliderHandleColor="var(--cobalt-deep)"
+    />
+  )
+
+  return (
+    <>
+      <div style={{ marginTop: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink-1)' }}>{title}</div>
+          {ready && (
+            <button
+              type="button"
+              onClick={() => setFullscreen(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '4px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--cobalt-soft)', color: 'var(--cobalt-deep)',
+                border: '1px solid var(--cobalt-deep)', transition: 'background 0.15s, color 0.15s',
+              }}
+            >
+              <span style={{ fontSize: 13 }}>&#x26F6;</span> Fullscreen
+            </button>
+          )}
+        </div>
+
+        <div style={{
+          borderRadius: 'var(--radius-sm)', overflow: 'hidden',
+          border: '1px solid var(--line-2)', background: 'var(--bg-2)',
+          minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {hasError ? (
+            <div style={{ fontSize: 12, color: 'var(--bad)', padding: 20 }}>Could not load one or both images for comparison.</div>
+          ) : !ready ? (
+            <div style={{ fontSize: 12, color: 'var(--ink-3)', padding: 20 }}>Loading images...</div>
+          ) : sliderNode}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 6, textAlign: 'center' }}>
+          Drag the slider to compare LR (left) and SR (right)
+          {ready && (
+            <> &middot; <span style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setFullscreen(true)}>open fullscreen</span></>
+          )}
+        </div>
+      </div>
+
+      {fullscreen && (
+        <div
+          onClick={() => setFullscreen(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 100000,
+            background: '#0a0a0a',
+            display: 'flex', flexDirection: 'column',
+          }}
+        >
+          {/* Top bar — in-flow, not absolute */}
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              flexShrink: 0, height: 52,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '0 20px',
+              background: 'rgba(255,255,255,0.05)', borderBottom: '1px solid rgba(255,255,255,0.1)',
+            }}
+          >
+            <span style={{ color: '#fff', fontWeight: 600, fontSize: 14 }}>{title}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>Drag handle to compare · ESC to close</span>
+              <button
+                type="button"
+                onClick={() => setFullscreen(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
+                  color: '#fff', borderRadius: 6, padding: '4px 14px', cursor: 'pointer', fontSize: 13,
+                }}
+              >
+                ✕ Close
+              </button>
+            </div>
+          </div>
+
+          {/* Slider — takes all remaining height */}
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'stretch' }}
+          >
+            <ReactCompareImage
+              leftImage={lrUrl}
+              rightImage={srUrl}
+              leftImageLabel="LR"
+              rightImageLabel="SR"
+              sliderLineColor="#5b9cf6"
+              sliderHandleColor="#5b9cf6"
+            />
+          </div>
+
+          {/* Bottom label */}
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              flexShrink: 0, height: 36,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '0 28px', fontSize: 12,
+              color: 'rgba(255,255,255,0.35)', borderTop: '1px solid rgba(255,255,255,0.07)',
+            }}
+          >
+            <span>◀ LR (Low Resolution)</span>
+            <span>SR (Super-Resolved) ▶</span>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 /* ─── Band checkbox selector ────────────────────────────────── */
 function BandCheckboxSelector({ totalBands, selectedBands, onChange, label }) {
   const toggle = (b) => {
@@ -528,7 +678,7 @@ function parsePatchedMetrics(lines) {
         const key = kv[1].toLowerCase()
         const val = parseFloat(kv[2])
         if (!isNaN(val)) {
-          if (section === 'sr')    result.sr[key] = val
+          if (section === 'sr') result.sr[key] = val
           else if (section === 'lr') result.lr_bicubic[key] = val
           else if (section === 'delta') result.delta[key] = val
         }
@@ -664,7 +814,7 @@ function PatchedTab({ tasks, optionsFiles }) {
           <LogConsole
             domain="inference"
             jobId={jobId}
-            onStop={() => stopInference(jobId).catch(() => {})}
+            onStop={() => stopInference(jobId).catch(() => { })}
             onLine={handleLogLine}
             onComplete={handleComplete}
           />
@@ -833,7 +983,7 @@ function RawPairedTab({ tasks, optionsFiles }) {
           <LogConsole
             domain="inference"
             jobId={jobId}
-            onStop={() => {}}
+            onStop={() => { }}
             onComplete={() => {
               setJobDone(true)
               fetchMetrics(jobIdRef.current)
@@ -843,7 +993,19 @@ function RawPairedTab({ tasks, optionsFiles }) {
         {jobDone && (
           <div className="card" style={{ marginTop: 16 }}>
             <div className="card-title">Results</div>
+
+            {/* LR / HR / SR side-by-side */}
             {resultImages.length > 0 && <ImageViewer images={resultImages} />}
+
+            {/* LR ↔ SR slider */}
+            {jobId && (
+              <ImageCompareSlider
+                lrUrl={getRawResultImageUrl(jobId, 'lr_display.png')}
+                srUrl={getRawResultImageUrl(jobId, 'sr_display.png')}
+                title="LR ↔ SR Comparison"
+              />
+            )}
+
             <BandImageViewer
               jobId={jobId} nBands={config.lr_bands.length}
               lrBands={config.lr_bands} hrBands={config.hr_bands} paired />
@@ -873,7 +1035,7 @@ function RawPairedTab({ tasks, optionsFiles }) {
               to precisely align the LR image onto the HR pixel grid before inference.
             </p>
             <p className="text-muted text-sm" style={{ lineHeight: 1.6, marginTop: 10 }}>
-              The LR image is then rescaled to an <strong>exact integer ×{config.scale_factor} ratio</strong> relative to the
+              The LR image is then rescaled to an <strong>exact integer ratio</strong> relative to the
               HR dimensions, regardless of the real sensor resolution difference (e.g. 1.7×, 2.3×).
               SwinIR runs on overlapping patches which are stitched together using a Hann-window blend.
             </p>
@@ -1001,6 +1163,14 @@ function LROnlyTab({ tasks, optionsFiles }) {
           <div className="card" style={{ marginTop: 16 }}>
             <div className="card-title">Results</div>
             <ImageViewer images={resultImages} />
+            {/* LR ↔ SR slider */}
+            {jobId && (
+              <ImageCompareSlider
+                lrUrl={getRawResultImageUrl(jobId, 'lr_display.png')}
+                srUrl={getRawResultImageUrl(jobId, 'sr_display.png')}
+                title="LR ↔ SR Comparison"
+              />
+            )}
             <BandImageViewer
               jobId={jobId} nBands={config.lr_bands.length}
               lrBands={config.lr_bands} paired={false} />

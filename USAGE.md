@@ -569,29 +569,57 @@ python raw_inference.py --config config.json
     "patch_size": 128,
     "overlap": 32,
     "enable_preprocessing": true,
+    "nodata_value": 0,
+    "saturated_value": 32767,
+    "clip_percentiles": [2.0, 98.0],
+    "coreg_a_enabled": true,
+    "coreg_a_max_features": 8000,
+    "coreg_a_match_ratio": 0.75,
+    "coreg_a_ransac_thresh": 4.0,
+    "coreg_b_enabled": true,
+    "coreg_b_upsample_factor": 100,
+    "radiometric_enabled": true,
+    "radiometric_block_size": 256,
+    "radiometric_rmse_threshold": 35.0,
+    "radiometric_post_hist_match": true,
     "model_config": {
         "upscale": 2, "in_chans": 3, "img_size": 128, "window_size": 8,
+        "img_range": 1.0,
         "depths": [6,6,6,6,6,6], "embed_dim": 180, "num_heads": [6,6,6,6,6,6],
         "mlp_ratio": 2, "upsampler": "pixelshuffle", "resi_connection": "1conv"
     }
 }
 ```
 
-**Key Configuration Keys:**
+**Configuration Key Reference:**
 
 | Key | Description |
 |-----|-------------|
-| `mode` | `"paired"` (LR + HR, with metrics) or `"lr_only"` (no HR ground truth) |
-| `lr_path` | Path to the LR input image (GeoTIFF, JP2, or standard image) |
-| `hr_path` | Path to the HR reference image (`"paired"` mode only) |
-| `lr_bands` | 1-indexed band numbers to read from the LR file for the RGB display (e.g. `[3,2,1]` for R,G,B ordering). Defaults to `[3,2,1]`. |
-| `hr_bands` | 1-indexed band numbers to read from the HR file (e.g. `[1,2,3]`). Defaults to `[1,2,3]`. |
+| `mode` | `"paired"` (LR + HR, with metrics) or `"lr_only"` (LR only, no metrics) |
+| `lr_path` | Path to the LR image (GeoTIFF, JP2, PNG, etc.) |
+| `hr_path` | Path to the HR image (`"paired"` mode only) |
+| `lr_bands` | 1-indexed band numbers for LR RGB extraction (e.g. `[3, 2, 1]` for Pleiades 1A). Defaults to `[3,2,1]`. |
+| `hr_bands` | 1-indexed band numbers for HR RGB extraction (e.g. `[1, 2, 3]` for Pleiades Neo). Defaults to `[1,2,3]`. |
 | `model_path` | Path to the trained `.pth` checkpoint |
 | `output_dir` | Directory where all output files are written |
-| `scale_factor` | Integer upscale factor (must match model's `upscale`) |
+| `scale_factor` | SR upscaling factor — must match the trained model's `upscale` |
 | `patch_size` | LR patch size in pixels for tiled inference |
-| `overlap` | Overlap between adjacent patches (reduces seam artefacts) |
-| `enable_preprocessing` | Run pipeline3 coregistration + radiometric normalisation before SR |
+| `overlap` | Overlap between adjacent patches in pixels (reduces seam artefacts) |
+| `enable_preprocessing` | If `true`, runs the full pipeline3 alignment stack before SR |
+| `nodata_value` | Pixel value treated as nodata in GeoTIFF images |
+| `saturated_value` | Pixel value treated as saturated (excluded from percentile estimation) |
+| `clip_percentiles` | `[low, high]` percentile bounds for 16-bit to 8-bit scaling |
+| `coreg_a_enabled` | Enable Stage A ORB coregistration |
+| `coreg_a_max_features` | Max ORB features to detect |
+| `coreg_a_match_ratio` | Lowe ratio test threshold |
+| `coreg_a_ransac_thresh` | RANSAC inlier threshold (pixels in overview space) |
+| `coreg_b_enabled` | Enable Stage B phase correlation |
+| `coreg_b_upsample_factor` | Sub-pixel refinement factor |
+| `radiometric_enabled` | Enable radiometric regression (LR to HR normalisation) |
+| `radiometric_block_size` | Block size for regression fitting |
+| `radiometric_rmse_threshold` | Max block RMSE; blocks above are excluded from the fit |
+| `radiometric_post_hist_match` | Apply histogram matching after linear regression |
+| `model_config` | SwinIR architecture dict — must match the trained checkpoint exactly |
 
 **Operating Modes:**
 - `"paired"`: Takes both an LR and HR image. Optionally runs full `pipeline3` stages (ORB, Phase Correlation, Radiometric Normalisation, Histogram Matching) to align the LR image exactly to the HR grid, enforcing an exact integer scale ratio regardless of the real sensor resolution ratio. Runs SwinIR on overlapping patches, stitches them with a Hann-window blend, and computes 8 metrics (PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER) against the HR ground truth.
@@ -696,6 +724,24 @@ uvicorn gui.backend.main:app --host 127.0.0.1 --port 8000 --reload
 cd gui/frontend && npm run dev
 ```
 Open `http://localhost:5173` in your browser.
+
+### 5.1 Phase A — Preprocessing
+
+Open the **Preprocessing** page and select the appropriate tab:
+- **Tab A — Pleiades Pipeline**: for paired HR+LR GeoTIFF/JP2. Enter paths, toggle ORB / Phase Correlation / ECC stages, set quality thresholds, and click **Run Pipeline**. A temp config is written to `gui/backend/tmp/pipeline3_config.json` and passed to `pipeline3.py` via `--config`.
+- **Tab B — HR Degradation Pipeline**: for HR-only or HR+LR pairs with synthetic degradation (BSRGAN, Real-ESRGAN, BSRGAN+, Satellite MTF). Use **↑ Load from file** to restore a saved degradation config or **↓ Save config** to export the current form values.
+- **Tab C — Step Preview**: shows image previews emitted by Pipeline A jobs in real time.
+
+### 5.2 Phase B — Training
+
+Open the **Training** page. Select **PSNR Training** or **GAN Training**, set the task name, load a preset config if needed, configure paths and hyperparameters, then click **Start Training**. A temp config JSON is written to `gui/backend/tmp/` and passed via `--opt`.
+
+### 5.3 Phase C — Inference
+
+The **Inference** page has three tabs:
+- **Tab 1 — Patched Images** (`main_test_swinir_config.py`): batch inference on aligned patch directories; reports 8 averaged metrics.
+- **Tab 2 — Raw HR+LR** (`raw_inference.py`, `mode=paired`): full-resolution paired inference with optional coregistration. Band selection, per-band image grid, and per-band PSNR/SSIM table are shown after completion.
+- **Tab 3 — LR-Only** (`raw_inference.py`, `mode=lr_only`): single LR image, no HR required. SR composite and per-band images are shown after completion.
 
 **GUI file layout:**
 

@@ -9,6 +9,8 @@ This guide covers how to install, run, and use the KAIR Super-Resolution Studio 
 - Python ≥ 3.9 with the KAIR virtualenv already set up (see [USAGE.md](USAGE.md))
 - Node.js ≥ 18 and npm ≥ 9
 
+> For a complete end-to-end reference including pipeline flowcharts, config tables, and code-level explanations, see [USER_MANUAL.md](USER_MANUAL.md).
+
 ---
 
 ## 1. Install Backend Dependencies
@@ -96,6 +98,7 @@ Runs batch inference on a directory of already-aligned LR patches against an HR 
 
 **Tab 2 — Raw HR+LR Inference (`raw_inference.py`)**
 Performs end-to-end inference on a paired raw satellite image.
+- Configure band mappings per sensor (HR and LR band indices) using the sensor profile selector
 - Automatically coregisters (ORB + Phase Correlation) and radiometrically matches LR to HR
 - Enforces an exact integer scaling factor (e.g. ×2) regardless of sensor resolution differences
 - Patches the full image, runs SR, stitches with a Hann-window blend, and computes metrics
@@ -214,11 +217,11 @@ Interactive Swagger UI: `http://localhost:8000/docs`
 | `/api/inference/latest-model/{task}` | GET | Get latest model + autofilled config |
 | `/api/inference/config-from-options/{name}` | GET | Extract model config from an options JSON file |
 | `/api/inference/config-from-path` | GET | Auto-detect model config from a checkpoint path |
-| `/api/inference/start` | POST | Launch patched-image inference |
+| `/api/inference/start` | POST | Launch patched-image inference (`main_test_swinir_config.py`) |
 | `/api/inference/stream/{job_id}` | GET | SSE log stream |
 | `/api/inference/stop/{job_id}` | POST | Cancel inference |
-| `/api/inference/raw-paired/start` | POST | Launch raw paired (LR+HR) inference |
-| `/api/inference/lr-only/start` | POST | Launch LR-only inference |
+| `/api/inference/raw-paired/start` | POST | Launch raw paired inference (`raw_inference.py`, `mode=paired`) |
+| `/api/inference/lr-only/start` | POST | Launch LR-only inference (`raw_inference.py`, `mode=lr_only`) |
 | `/api/inference/raw/result/{job_id}/{filename}` | GET | Serve a result PNG (display composite or per-band grayscale) |
 | `/api/inference/raw/metrics/{job_id}` | GET | Return `metrics.json` from a paired inference job |
 | `/api/inference/image-info` | GET | Return band count and pixel dimensions for any image path (`?path=...`) |

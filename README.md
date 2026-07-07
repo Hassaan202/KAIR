@@ -22,7 +22,8 @@ The codebase is built on the [KAIR framework](https://github.com/cszn/KAIR) by K
 KAIR/
 ├── main_train_swinir.py          # PSNR training
 ├── main_train_swinir_gan.py      # GAN training
-├── main_test_swinir_config.py    # Inference + metrics
+├── main_test_swinir_config.py    # Batch inference + 8 metrics (pre-patched images)
+├── raw_inference.py              # End-to-end inference on raw full-size satellite images
 ├── main_evaluate_swinir_by_class.py  # Class-wise evaluation
 ├── compare_images_side_by_side.py    # Visual comparisons
 ├── models/
@@ -54,8 +55,8 @@ For installation and running instructions, see [gui/GUI_SETUP.md](gui/GUI_SETUP.
 
 ### 1. Preprocess satellite imagery
 ```bash
-# Edit CONFIG in the script, then run:
-python pleaides_preprocessing/pipeline3.py
+# Pass a JSON config file (recommended), or edit CONFIG directly in the script:
+python pleaides_preprocessing/pipeline3.py --config path/to/config.json
 ```
 
 ### 2. Train (PSNR)
@@ -68,10 +69,19 @@ python main_train_swinir.py --opt options/swinir/train_swinir_sr_classical.json
 python main_train_swinir_gan.py --opt options/swinir/train_swinir_sr_realworld_x2_gan.json
 ```
 
-### 4. Test
+### 4. Test (pre-patched images)
 ```bash
-# Edit CONFIG in the script with model path and dataset dirs, then run:
+# Edit CONFIG and MODEL_CONFIG in the script with model path and dataset dirs, then run:
 python main_test_swinir_config.py
+```
+
+### 5. Raw inference on full satellite images
+```bash
+# Paired mode — LR + HR, runs full coregistration and computes metrics:
+python raw_inference.py --config config.json
+
+# LR-only mode — no ground truth required:
+python raw_inference.py --config config_lr_only.json
 ```
 
 For full configuration details see [USAGE.md](USAGE.md).

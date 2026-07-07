@@ -88,7 +88,7 @@ export default function LogConsole({ domain, jobId, onStop, onComplete, onLine, 
       },
       (s) => {
         setStatus(s)
-        if (s === 'completed' && onCompleteRef.current) {
+        if (s.toLowerCase().includes('completed') && onCompleteRef.current) {
           onCompleteRef.current()
         }
       }
@@ -103,7 +103,7 @@ export default function LogConsole({ domain, jobId, onStop, onComplete, onLine, 
 
   if (!jobId) return null
 
-  const isLive = status === 'running' || status === 'pending'
+  const isLive = status.toLowerCase().includes('running') || status.toLowerCase().includes('pending')
   const visibleStages = PREVIEW_STAGES.filter((s) => previews[s.key])
 
   return (
