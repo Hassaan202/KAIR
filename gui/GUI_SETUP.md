@@ -99,12 +99,21 @@ Performs end-to-end inference on a paired raw satellite image.
 - Automatically coregisters (ORB + Phase Correlation) and radiometrically matches LR to HR
 - Enforces an exact integer scaling factor (e.g. ×2) regardless of sensor resolution differences
 - Patches the full image, runs SR, stitches with a Hann-window blend, and computes metrics
-- Resulting SR/LR/HR display images are displayed directly in the GUI
+- **Band selection**: When a valid image path is entered, the GUI fetches band count and dimensions from the backend and displays a `MetaPill` (e.g. "4 bands · 1024×1024 px · geospatial"). Band selection switches from a text array editor to toggle buttons — click to add/remove bands; the order you click sets the display channel order (badges show 1/2/3 position).
+- Resulting SR/LR/HR RGB composites are displayed directly in the GUI
+- **Per-band images**: Below the composite viewer, a spectral band grid shows each individual grayscale channel for LR, SR, and HR (click any thumbnail to open full-size). Labelled "Spectral N" using the configured band indices.
+- **Per-band metrics table**: PSNR and SSIM broken down per output channel, labelled by the actual spectral band number from the band selection config.
 
 **Tab 3 — LR-Only Inference (`raw_inference.py`)**
 Runs SR on a single unlabelled LR image (no HR ground truth).
 - Full image patching and stitching
+- Band selection with metadata auto-load (same `MetaPill` + toggle-button UX as Tab 2)
+- Per-band grayscale SR images displayed below the RGB composite result
 - Result SR image is displayed directly in the GUI
+
+**Model Architecture card** — shown in the right column for all three tabs (outside the form, always visible while configuring bands and paths).
+
+**Band Classes reference** — a "Band Classes" button in the sidebar opens a modal listing spectral band profiles for common satellite sensors (Panchromatic, RGB, Multispectral 4-band, Multispectral 8-band, Sentinel-2). Each profile shows band index, name, wavelength range, and description. Use this as a quick reference when setting `lr_bands` / `hr_bands`.
 
 ---
 
@@ -137,6 +146,14 @@ For **HR-only** images (generates synthetic LR) or **existing HR+LR pairs** (pre
 - `satellite` — MTF-based optics/sensor/atmospheric degradation (recommended for satellite data)
 
 Optional **train/test split** moves a configurable fraction of output images to separate `*_test` directories.
+
+**Degradation file browser** — at the top of the Degradation section:
+- **↑ Load from file**: loads a previously saved `.json` degradation config and merges all degradation parameters into the current form state (useful for reusing a config learned by `esrgan_mapping_optuna.py`).
+- **↓ Save config**: downloads the current degradation form values as a named `.json` file for reuse or version control.
+
+#### Tab C — Step Preview
+
+Displays image previews emitted by Pipeline A jobs as they run. Each preprocessing stage that produces a preview image (e.g. coregistration overlays, patch quality visualisations) appears as a labelled thumbnail grid. Thumbnails are updated in real time as the job progresses. Click any thumbnail to view it full-size.
 
 ---
 
@@ -186,6 +203,7 @@ Interactive Swagger UI: `http://localhost:8000/docs`
 
 | Endpoint | Method | Description |
 |---|---|---|
+| `/api/health` | GET | Health check |
 | `/api/training/configs` | GET | List available swinir config files |
 | `/api/training/config/{name}` | GET | Load a config file |
 | `/api/training/runs` | GET | List training runs in `superresolution/` |
@@ -194,12 +212,20 @@ Interactive Swagger UI: `http://localhost:8000/docs`
 | `/api/training/stop/{job_id}` | POST | Cancel training |
 | `/api/inference/tasks` | GET | List trained tasks |
 | `/api/inference/latest-model/{task}` | GET | Get latest model + autofilled config |
-| `/api/inference/start` | POST | Launch inference |
+| `/api/inference/config-from-options/{name}` | GET | Extract model config from an options JSON file |
+| `/api/inference/config-from-path` | GET | Auto-detect model config from a checkpoint path |
+| `/api/inference/start` | POST | Launch patched-image inference |
 | `/api/inference/stream/{job_id}` | GET | SSE log stream |
+| `/api/inference/stop/{job_id}` | POST | Cancel inference |
+| `/api/inference/raw-paired/start` | POST | Launch raw paired (LR+HR) inference |
+| `/api/inference/lr-only/start` | POST | Launch LR-only inference |
+| `/api/inference/raw/result/{job_id}/{filename}` | GET | Serve a result PNG (display composite or per-band grayscale) |
+| `/api/inference/raw/metrics/{job_id}` | GET | Return `metrics.json` from a paired inference job |
+| `/api/inference/image-info` | GET | Return band count and pixel dimensions for any image path (`?path=...`) |
 | `/api/preprocessing/pipeline3/start` | POST | Launch pipeline3.py |
 | `/api/preprocessing/run-pipeline/start` | POST | Launch run_pipeline.py |
 | `/api/preprocessing/stream/{job_id}` | GET | SSE log stream |
-| `/api/health` | GET | Health check |
+| `/api/preprocessing/stop/{job_id}` | POST | Cancel preprocessing job |
 
 ---
 
@@ -213,3 +239,7 @@ Interactive Swagger UI: `http://localhost:8000/docs`
 | Training fails immediately | Check `gui/backend/tmp/train_<task>.json` — the generated config may have a path error |
 | pipeline3.py config not applied | Confirm the script was patched with `--config` support (see diff in `pleaides_preprocessing/pipeline3.py`) |
 | `CUDA out of memory` | Reduce `dataloader_batch_size`, `H_size`, or `embed_dim` in the training form |
+| Band selector not appearing (stays as text input) | The `/api/inference/image-info` call returned an error — check that the image path is accessible from the backend's working directory and that `rasterio` or `opencv-python` is installed in the venv |
+| Per-band images missing after inference | Ensure `raw_inference.py` at project root is the updated version; the script must save `lr_band_N.png` / `sr_band_N.png` files alongside the display composites |
+| Degradation load/save buttons not visible | Scroll to the bottom of the collapsed Degradation section and expand it — the buttons appear at the top of the expanded panel |
+| Step Preview tab empty after pipeline run | Preview images are generated only by Pipeline A jobs that emit `PREVIEW_READY` log lines; Pipeline B does not emit previews |

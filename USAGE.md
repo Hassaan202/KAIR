@@ -11,6 +11,7 @@ This file covers all usage instructions for SwinIR training, testing, and remote
 3. [Training](#2-training)
 4. [Testing](#3-testing)
 5. [Visual Comparison](#4-visual-comparison)
+6. [GUI](#5-gui)
 
 ---
 
@@ -560,6 +561,8 @@ python raw_inference.py --config config.json
     "mode": "paired",
     "lr_path": "path/to/lr.tif",
     "hr_path": "path/to/hr.tif",
+    "lr_bands": [3, 2, 1],
+    "hr_bands": [1, 2, 3],
     "model_path": "superresolution/task/models/best_E.pth",
     "output_dir": "testsets/raw_inference_output",
     "scale_factor": 2,
@@ -574,11 +577,58 @@ python raw_inference.py --config config.json
 }
 ```
 
+**Key Configuration Keys:**
+
+| Key | Description |
+|-----|-------------|
+| `mode` | `"paired"` (LR + HR, with metrics) or `"lr_only"` (no HR ground truth) |
+| `lr_path` | Path to the LR input image (GeoTIFF, JP2, or standard image) |
+| `hr_path` | Path to the HR reference image (`"paired"` mode only) |
+| `lr_bands` | 1-indexed band numbers to read from the LR file for the RGB display (e.g. `[3,2,1]` for R,G,B ordering). Defaults to `[3,2,1]`. |
+| `hr_bands` | 1-indexed band numbers to read from the HR file (e.g. `[1,2,3]`). Defaults to `[1,2,3]`. |
+| `model_path` | Path to the trained `.pth` checkpoint |
+| `output_dir` | Directory where all output files are written |
+| `scale_factor` | Integer upscale factor (must match model's `upscale`) |
+| `patch_size` | LR patch size in pixels for tiled inference |
+| `overlap` | Overlap between adjacent patches (reduces seam artefacts) |
+| `enable_preprocessing` | Run pipeline3 coregistration + radiometric normalisation before SR |
+
 **Operating Modes:**
-- `"paired"`: Takes both an LR and HR image. Optionally runs full `pipeline3` stages (ORB, Phase Correlation, Radiometric Normalisation, Histogram Matching) to align the LR image exactly to the HR grid, enforcing an exact integer scale ratio regardless of the real sensor resolution ratio. Runs SwinIR on overlapping patches, stitches them, and computes 8 metrics (PSNR, SSIM, SAM, etc.) against the HR ground truth.
+- `"paired"`: Takes both an LR and HR image. Optionally runs full `pipeline3` stages (ORB, Phase Correlation, Radiometric Normalisation, Histogram Matching) to align the LR image exactly to the HR grid, enforcing an exact integer scale ratio regardless of the real sensor resolution ratio. Runs SwinIR on overlapping patches, stitches them with a Hann-window blend, and computes 8 metrics (PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER) against the HR ground truth.
 - `"lr_only"`: Takes only a single LR image. Runs SwinIR on overlapping patches and saves the SR output. No HR ground truth required; no metrics are computed.
 
-Outputs are saved in the `output_dir`: `lr_display.png`, `sr_display.png`, `hr_display.png`, `metrics.json`, and a log file.
+**Outputs** (saved in `output_dir`):
+
+| File | Description |
+|------|-------------|
+| `lr_display.png` | LR image rendered as an 8-bit RGB composite using `lr_bands` |
+| `sr_display.png` | SR image rendered as an 8-bit RGB composite |
+| `hr_display.png` | HR image rendered as an 8-bit RGB composite (`"paired"` only) |
+| `lr_band_N.png` | Grayscale PNG for each individual LR channel (N = 1, 2, …) |
+| `sr_band_N.png` | Grayscale PNG for each individual SR channel |
+| `hr_band_N.png` | Grayscale PNG for each individual HR channel (`"paired"` only) |
+| `metrics.json` | All computed metrics (`"paired"` only — see structure below) |
+| `raw_inference_*.log` | Full run log |
+
+**`metrics.json` structure** (`"paired"` mode):
+```json
+{
+  "sr":  { "psnr": 32.1, "ssim": 0.91, "sam": 0.04, ... },
+  "lr_bicubic": { "psnr": 28.5, "ssim": 0.83, ... },
+  "delta": { "psnr": 3.6, "ssim": 0.08, ... },
+  "per_band": {
+    "band_1": { "psnr": 33.2, "ssim": 0.92 },
+    "band_2": { "psnr": 31.8, "ssim": 0.90 },
+    "band_3": { "psnr": 31.4, "ssim": 0.89 }
+  },
+  "lr_bands": [3, 2, 1],
+  "hr_bands": [1, 2, 3]
+}
+```
+
+- `sr` / `lr_bicubic` / `delta` — full-image composite metrics (8 metrics each)
+- `per_band` — PSNR and SSIM broken down per output channel
+- `lr_bands` / `hr_bands` — the band indices used so results can be mapped back to spectral bands
 
 ---
 
@@ -629,6 +679,40 @@ Set `sr_iteration` to a specific iteration number string to select an exact chec
 
 **Output:** One PNG per patch saved to `output_dir`, named `<patch_name><output_suffix>.png`.
 
+---
 
+## 5. GUI
 
+A full web-based GUI is available in the `gui/` directory. It covers all three workflows (Preprocessing, Training, Inference) with live log streaming, model auto-configuration, and results display.
 
+See **[gui/GUI_SETUP.md](gui/GUI_SETUP.md)** for installation, startup, and a complete feature reference.
+
+**Quick start summary:**
+```bash
+# Terminal 1 — backend (activate KAIR venv first)
+uvicorn gui.backend.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Terminal 2 — frontend
+cd gui/frontend && npm run dev
+```
+Open `http://localhost:5173` in your browser.
+
+**GUI file layout:**
+
+| Path | Purpose |
+|------|---------|
+| `gui/backend/main.py` | FastAPI application entry point |
+| `gui/backend/routers/inference.py` | Inference API endpoints (raw inference, image-info, metrics) |
+| `gui/backend/routers/training.py` | Training API endpoints |
+| `gui/backend/routers/preprocessing.py` | Preprocessing API endpoints |
+| `gui/backend/services/job_manager.py` | Subprocess lifecycle and SSE log streaming |
+| `gui/backend/services/config_service.py` | Model scanner and config reader |
+| `gui/backend/schemas/` | Pydantic request/response models |
+| `gui/backend/tmp/` | Temporary JSON configs written at runtime (auto-created) |
+| `gui/frontend/src/App.jsx` | Root layout, sidebar navigation, Band Classes reference modal |
+| `gui/frontend/src/pages/Inference.jsx` | Inference page (3 tabs: Patched / Raw Paired / LR-Only) |
+| `gui/frontend/src/pages/Training.jsx` | Training page (PSNR and GAN modes) |
+| `gui/frontend/src/pages/Preprocessing.jsx` | Preprocessing page (Pipeline A, Pipeline B, Step Preview) |
+| `gui/frontend/src/components/LogConsole.jsx` | Live SSE log viewer with preview image support |
+| `gui/frontend/src/components/FormFields.jsx` | Reusable form primitives (NumberField, SelectField, etc.) |
+| `gui/frontend/src/api/client.js` | Axios API client (all backend calls defined here) |
