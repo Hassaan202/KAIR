@@ -47,7 +47,7 @@ KAIR/
 
 A unified Web GUI is available for preprocessing satellite datasets, training SwinIR models (both PSNR and GAN versions), running inference, and monitoring training metrics/logs in real time.
 
-For installation and running instructions, see [gui/GUI_SETUP.md](gui/GUI_SETUP.md).
+For installation and running instructions, see [gui/GUI_SETUP.md](gui/GUI_USAGE.md).
 
 ---
 

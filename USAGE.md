@@ -713,7 +713,7 @@ Set `sr_iteration` to a specific iteration number string to select an exact chec
 
 A full web-based GUI is available in the `gui/` directory. It covers all three workflows (Preprocessing, Training, Inference) with live log streaming, model auto-configuration, and results display.
 
-See **[gui/GUI_SETUP.md](gui/GUI_SETUP.md)** for installation, startup, and a complete feature reference.
+See **[gui/GUI_SETUP.md](gui/GUI_USAGE.md)** for installation, startup, and a complete feature reference.
 
 **Quick start summary:**
 ```bash
@@ -742,23 +742,3 @@ The **Inference** page has three tabs:
 - **Tab 1 — Patched Images** (`main_test_swinir_config.py`): batch inference on aligned patch directories; reports 8 averaged metrics.
 - **Tab 2 — Raw HR+LR** (`raw_inference.py`, `mode=paired`): full-resolution paired inference with optional coregistration. Band selection, per-band image grid, and per-band PSNR/SSIM table are shown after completion.
 - **Tab 3 — LR-Only** (`raw_inference.py`, `mode=lr_only`): single LR image, no HR required. SR composite and per-band images are shown after completion.
-
-**GUI file layout:**
-
-| Path | Purpose |
-|------|---------|
-| `gui/backend/main.py` | FastAPI application entry point |
-| `gui/backend/routers/inference.py` | Inference API endpoints (raw inference, image-info, metrics) |
-| `gui/backend/routers/training.py` | Training API endpoints |
-| `gui/backend/routers/preprocessing.py` | Preprocessing API endpoints |
-| `gui/backend/services/job_manager.py` | Subprocess lifecycle and SSE log streaming |
-| `gui/backend/services/config_service.py` | Model scanner and config reader |
-| `gui/backend/schemas/` | Pydantic request/response models |
-| `gui/backend/tmp/` | Temporary JSON configs written at runtime (auto-created) |
-| `gui/frontend/src/App.jsx` | Root layout, sidebar navigation, Band Classes reference modal |
-| `gui/frontend/src/pages/Inference.jsx` | Inference page (3 tabs: Patched / Raw Paired / LR-Only) |
-| `gui/frontend/src/pages/Training.jsx` | Training page (PSNR and GAN modes) |
-| `gui/frontend/src/pages/Preprocessing.jsx` | Preprocessing page (Pipeline A, Pipeline B, Step Preview) |
-| `gui/frontend/src/components/LogConsole.jsx` | Live SSE log viewer with preview image support |
-| `gui/frontend/src/components/FormFields.jsx` | Reusable form primitives (NumberField, SelectField, etc.) |
-| `gui/frontend/src/api/client.js` | Axios API client (all backend calls defined here) |
