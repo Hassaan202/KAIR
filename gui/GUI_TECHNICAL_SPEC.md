@@ -2,7 +2,7 @@
 
 This document provides a detailed technical specification of the KAIR Super-Resolution Studio GUI, covering the frontend stack, backend service layer, long-running job manager subprocess logic, code layouts, and the API endpoints.
 
-For instructions on environment setup, dependencies installation, and launching the application, see [GUI_SETUP.md](GUI_SETUP.md).
+For instructions on environment setup, dependencies installation, and launching the application, see [GUI_USAGE.md](GUI_USAGE.md).
 
 ---
 
@@ -81,7 +81,23 @@ When running Python subprocesses on Windows, imported scientific computing libra
 
 ---
 
-## 4. Technical File Locations Map
+## 4. Python Subprocess Mappings
+
+The backend serves as a thin wrapper around original KAIR core Python scripts. When jobs are launched from the frontend, the FastAPI backend spawns the corresponding Python scripts under the hood:
+
+| GUI Workspace / Functionality | FastAPI Router / Endpoint | Backend Script / Executable | Configuration Delivery |
+|---|---|---|---|
+| **Training (PSNR Mode)** | `/api/training/start` | [main_train_swinir.py](file:///Users/Hassaan/PycharmProjects/KAIR/main_train_swinir.py) | Passed via `--opt` (temporary JSON written to `gui/backend/tmp/train_{task}.json`). |
+| **Training (GAN Mode)** | `/api/training/start` | [main_train_swinir_gan.py](file:///Users/Hassaan/PycharmProjects/KAIR/main_train_swinir_gan.py) | Passed via `--opt` (temporary JSON written to `gui/backend/tmp/train_{task}.json`). |
+| **Inference (Tab 1: Patched)** | `/api/inference/start` | [main_test_swinir_config.py](file:///Users/Hassaan/PycharmProjects/KAIR/main_test_swinir_config.py) | Imported and wrapped in a dynamic python script under `gui/backend/tmp/run_inference.py` to inject `CONFIG` and `MODEL_CONFIG` dictionaries. |
+| **Inference (Tab 2: Raw Paired)** | `/api/inference/raw-paired/start` | [raw_inference.py](file:///Users/Hassaan/PycharmProjects/KAIR/raw_inference.py) | Run with `mode=paired` using `--config` pointing to temporary JSON. |
+| **Inference (Tab 3: LR-Only)** | `/api/inference/lr-only/start` | [raw_inference.py](file:///Users/Hassaan/PycharmProjects/KAIR/raw_inference.py) | Run with `mode=lr_only` using `--config` pointing to temporary JSON. |
+| **Preprocessing (Tab A: Pleiades)** | `/api/preprocessing/pipeline3/start` | [pleaides_preprocessing/pipeline3.py](file:///Users/Hassaan/PycharmProjects/KAIR/pleaides_preprocessing/pipeline3.py) | Passed via `--config` pointing to temporary config JSON. |
+| **Preprocessing (Tab B: Degradation)** | `/api/preprocessing/run-pipeline/start` | [preprocessing_pipeline/run_pipeline.py](file:///Users/Hassaan/PycharmProjects/KAIR/preprocessing_pipeline/run_pipeline.py) | Passed via `--config` pointing to temporary config JSON. |
+
+---
+
+## 5. Technical File Locations Map
 
 | Path | Purpose / Description |
 |---|---|
@@ -97,7 +113,7 @@ When running Python subprocesses on Windows, imported scientific computing libra
 
 ---
 
-## 5. API Reference
+## 6. API Reference
 
 Interactive OpenAPI documentation is auto-served at `http://localhost:8000/docs`.
 

@@ -713,7 +713,7 @@ Set `sr_iteration` to a specific iteration number string to select an exact chec
 
 A full web-based GUI is available in the `gui/` directory. It covers all three workflows (Preprocessing, Training, Inference) with live log streaming, model auto-configuration, and results display.
 
-See **[gui/GUI_SETUP.md](gui/GUI_USAGE.md)** for installation, startup, and a complete feature reference.
+See **[gui/GUI_USAGE.md](gui/GUI_USAGE.md)** for installation, startup, and a complete feature reference.
 
 **Quick start summary:**
 ```bash

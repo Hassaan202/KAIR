@@ -94,6 +94,21 @@ Runs batch inference on a directory of already-aligned LR patches against an HR 
 - Input/Output dir paths
 - Reports 8 metrics across the batch (PSNR, SSIM, IT-SSIM, SAM, UIQI, RMSE, FSIM, SRER)
 
+> [!NOTE]
+> **Model Auto-fill Directory Format**: To automatically detect and auto-fill model architectures in the GUI (e.g. embed dimension, window size, depths), checkpoints must be placed in a specific structure under `superresolution/`:
+> ```
+> superresolution/
+> └── <task_name>/
+>     ├── models/
+>     │   └── <iteration>_E.pth (or _G.pth)
+>     ├── options/
+>     │   └── train.json (containing SwinIR architecture settings under "netG")
+>     └── log/
+>         └── train.log
+> ```
+> Training runs executed via the GUI automatically produce this format. If importing pretrained model weights downloaded from external sources, please replicate this folder layout so the backend model scanner can parse the config.
+
+
 **Tab 2 — Raw HR+LR Inference (`raw_inference.py`)**
 Performs end-to-end inference on a paired raw satellite image.
 - Configure band mappings per sensor (HR and LR band indices) using the sensor profile selector
