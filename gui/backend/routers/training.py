@@ -195,3 +195,17 @@ def stop_training(job_id: str):
     if not job_manager.cancel_job(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
     return {"status": "cancelled", "job_id": job_id}
+
+
+@router.post("/pause/{job_id}")
+def pause_training(job_id: str):
+    if not job_manager.pause_job(job_id):
+        raise HTTPException(status_code=400, detail="Job not running or not found")
+    return {"status": "paused", "job_id": job_id}
+
+
+@router.post("/resume/{job_id}")
+def resume_training(job_id: str):
+    if not job_manager.resume_job(job_id):
+        raise HTTPException(status_code=400, detail="Job not paused or not found")
+    return {"status": "running", "job_id": job_id}

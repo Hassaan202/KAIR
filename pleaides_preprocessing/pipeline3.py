@@ -84,12 +84,12 @@ CONFIG_JSON_PATH: str = "config.json"
 
 CONFIG: dict = {
     # ── Paths — each may be a single file OR a directory ───────────────────
-    "HR_IMAGE_PATH": r"Lahore Raw\Lahore HR\IMG_01_PNEO3_PMS-FS\IMG_PNEO3_STD_202601250555400_PMS-FS_ORT_1e224074-3a2a-4f29-cfe4-ab0a484fbd47_RGB_R1C1.JP2",
-    "LR_IMAGE_PATH": r"Lahore Raw\Lahore LR\IMG_PHR1A_PMS_001\IMG_PHR1A_PMS_202602130556014_ORT_38a71b19-2781-4146-c1f3-561512adaf94_R1C1.JP2",
-    "OUTPUT_DIR":    "Lahore_no_tile_overlap",
+    "HR_IMAGE_PATH": "",
+    "LR_IMAGE_PATH": "",
+    "OUTPUT_DIR":    "output_patches",
 
     # ── Directory-mode image discovery ──────────────────────────────────────
-    "SUPPORTED_EXTENSIONS": [".tif", ".tiff", ".jp2"],
+    "SUPPORTED_EXTENSIONS": [".tif", ".tiff", ".jp2", ".png", ".jpg", ".jpeg", ".bmp"],
 
 # ── Band Mappings (already correct for these sensors) ──────────────────
     "HR_RGB_BANDS": [1, 2, 3],   # Red=1, Green=2, Blue=3 (Neo)
@@ -1588,6 +1588,72 @@ def save_preview(
         return None
 
 
+def save_band_wise_overview(
+    path: str,
+    output_dir: Path,
+    scene_name: str,
+    stage: str,
+    cfg: dict,
+) -> Optional[Path]:
+    """
+    Read every band in *path*, apply independent per-band percentile scaling,
+    and save them as a horizontal grayscale tile grid so every spectral channel
+    (including those not mapped to RGB, e.g. NIR) can be inspected.
+    Emits a PREVIEW_READY marker so the GUI picks it up automatically.
+    """
+    if not cfg.get("PREVIEW_ENABLED", True):
+        return None
+    try:
+        max_dim    = cfg.get("COREG_PREVIEW_DECIM_DIM", 2000)
+        nodata     = cfg.get("NODATA_VALUE", 0)
+        saturated  = cfg.get("SATURATED_VALUE", 32767)
+        lo_pct, hi_pct = cfg.get("CLIP_PERCENTILES", [2.0, 98.0])
+        preview_dir = output_dir / "_previews"
+        preview_dir.mkdir(parents=True, exist_ok=True)
+
+        with rasterio.open(path) as src:
+            n_bands        = src.count
+            height, width  = src.height, src.width
+            scale          = min(1.0, max_dim / max(height, width))
+            out_h          = max(1, int(round(height * scale)))
+            out_w          = max(1, int(round(width  * scale)))
+            raw = src.read(
+                list(range(1, n_bands + 1)),
+                out_shape=(n_bands, out_h, out_w),
+                resampling=Resampling.average,
+            ).astype(np.float32)
+
+        label_h = 22
+        tiles = []
+        for i in range(n_bands):
+            band  = raw[i]
+            valid = band[(band != nodata) & (band < saturated)]
+            lo    = float(np.percentile(valid, lo_pct))  if valid.size else 0.0
+            hi    = float(np.percentile(valid, hi_pct))  if valid.size else 1.0
+            if hi <= lo:
+                hi = lo + 1.0
+            grey = np.clip((band - lo) / (hi - lo) * 255.0, 0, 255).astype(np.uint8)
+            grey_rgb = np.stack([grey, grey, grey], axis=2)
+
+            bar = np.zeros((label_h, out_w, 3), dtype=np.uint8)
+            cv2.putText(bar, f"Band {i + 1}", (4, label_h - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (210, 210, 210), 1, cv2.LINE_AA)
+            tiles.append(np.vstack([bar, grey_rgb]))
+
+        sheet    = np.hstack(tiles)
+        filename = f"{scene_name}_{stage}.jpg"
+        path_out = preview_dir / filename
+        cv2.imwrite(
+            str(path_out), cv2.cvtColor(sheet, cv2.COLOR_RGB2BGR),
+            [cv2.IMWRITE_JPEG_QUALITY, cfg.get("PREVIEW_JPEG_QUALITY", 85)],
+        )
+        _emit_preview_marker(Path(filename), stage, scene_name)
+        return path_out
+    except Exception as exc:
+        logging.warning("Could not save band-wise overview '%s' for '%s': %s", stage, scene_name, exc)
+        return None
+
+
 def save_patch_contact_sheet(
     patch_pairs: List[Tuple[Optional[np.ndarray], np.ndarray]],
     output_dir: Path,
@@ -1656,7 +1722,7 @@ def resolve_work_items(cfg: dict) -> List[dict]:
     """
     hr_cfg = (cfg.get("HR_IMAGE_PATH") or "").strip()
     lr_cfg = (cfg.get("LR_IMAGE_PATH") or "").strip()
-    extensions = cfg.get("SUPPORTED_EXTENSIONS", [".tif", ".tiff", ".jp2"])
+    extensions = cfg.get("SUPPORTED_EXTENSIONS", [".tif", ".tiff", ".jp2", ".png", ".jpg", ".jpeg", ".bmp"])
 
     hr_path = Path(hr_cfg) if hr_cfg else None
     lr_path = Path(lr_cfg) if lr_cfg else None
@@ -1764,8 +1830,10 @@ def process_item(item: dict, cfg: dict) -> dict:
         # extra I/O beyond percentile-scaling them for display.
         save_preview(apply_percentile_scaling(diagnostics["hr_overview"], hr_thresholds),
                      output_dir, name, "load_hr", cfg)
+        save_band_wise_overview(str(hr_path), output_dir, name, "bands_hr", cfg)
         save_preview(apply_percentile_scaling(diagnostics["lr_overview"], lr_thresholds),
                      output_dir, name, "load_lr", cfg)
+        save_band_wise_overview(str(lr_path), output_dir, name, "bands_lr", cfg)
         save_preview(apply_percentile_scaling(diagnostics["lr_overview_after_a"], lr_thresholds),
                      output_dir, name, "coreg_a", cfg)
         save_preview(apply_percentile_scaling(diagnostics["lr_overview_after_b"], lr_thresholds),
@@ -1828,6 +1896,7 @@ def process_item(item: dict, cfg: dict) -> dict:
         try:
             overview = _read_single_overview(str(hr_path), hr_bands, cfg.get("COREG_PREVIEW_DECIM_DIM", 2000))
             save_preview(apply_percentile_scaling(overview, hr_thresholds), output_dir, name, "load_hr", cfg)
+            save_band_wise_overview(str(hr_path), output_dir, name, "bands_hr", cfg)
         except Exception as exc:
             logging.warning("Could not build load preview for '%s': %s", name, exc)
 
@@ -1851,6 +1920,7 @@ def process_item(item: dict, cfg: dict) -> dict:
         try:
             overview = _read_single_overview(str(lr_path), lr_bands, cfg.get("COREG_PREVIEW_DECIM_DIM", 2000))
             save_preview(apply_percentile_scaling(overview, lr_thresholds), output_dir, name, "load_lr", cfg)
+            save_band_wise_overview(str(lr_path), output_dir, name, "bands_lr", cfg)
         except Exception as exc:
             logging.warning("Could not build load preview for '%s': %s", name, exc)
 

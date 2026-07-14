@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-from .routers import training, inference, preprocessing
+from .routers import training, inference, preprocessing, filesystem
 
 app = FastAPI(
     title="SUPARCO Super-Resolution",
@@ -30,6 +30,7 @@ app.add_middleware(
 app.include_router(training.router)
 app.include_router(inference.router)
 app.include_router(preprocessing.router)
+app.include_router(filesystem.router)
 
 
 @app.get("/api/health")

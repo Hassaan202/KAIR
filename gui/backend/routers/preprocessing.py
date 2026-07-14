@@ -9,6 +9,7 @@ import math
 import os
 import random
 import shutil
+import subprocess as _subprocess_mod
 import sys
 from pathlib import Path
 
@@ -55,7 +56,7 @@ def _do_train_test_split(output_dir: Path, train_ratio: float, test_output_dir: 
     hr_dir = output_dir / "hr"
     lr_dir = output_dir / "lr"
 
-    if not hr_dir.is_dir():
+    if not hr_dir.is_dir() or not any(hr_dir.iterdir()):
         return
 
     all_patches = sorted([p.stem for p in hr_dir.iterdir() if p.is_file()])
@@ -81,8 +82,21 @@ def _do_train_test_split(output_dir: Path, train_ratio: float, test_output_dir: 
 
 
 def _do_run_pipeline_split(output_hr_dir: Path, output_lr_dir: Path, train_ratio: float):
-    """Split run_pipeline outputs into train/test sub-folders."""
-    all_names = sorted([p.stem for p in output_hr_dir.iterdir() if p.is_file()])
+    """Split run_pipeline outputs into train/test sub-folders.
+
+    Uses output_hr_dir as reference; falls back to output_lr_dir when HR dir is
+    absent or empty (e.g. when save_hr_copy is disabled in hr_only mode).
+    """
+    # Pick reference dir: prefer HR, fall back to LR
+    ref_dir = None
+    for candidate in (output_hr_dir, output_lr_dir):
+        if candidate.is_dir() and any(f for f in candidate.iterdir() if f.is_file()):
+            ref_dir = candidate
+            break
+    if ref_dir is None:
+        return
+
+    all_names = sorted([p.stem for p in ref_dir.iterdir() if p.is_file()])
     random.shuffle(all_names)
     n_train = math.ceil(len(all_names) * train_ratio)
     test_names = set(all_names[n_train:])
@@ -100,6 +114,173 @@ def _do_run_pipeline_split(output_hr_dir: Path, output_lr_dir: Path, train_ratio
             shutil.move(str(p), str(test_hr / p.name))
         for p in output_lr_dir.glob(f"{stem}.*"):
             shutil.move(str(p), str(test_lr / p.name))
+
+
+# ── Class-directory detection ─────────────────────────────────────────────────
+
+_IMAGE_EXTENSIONS = {
+    '.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff',
+    '.jp2', '.img', '.webp',
+}
+
+
+def _detect_class_structure(base_path: str) -> dict:
+    """Return whether base_path is a classed directory (immediate children are
+    subdirs that each contain image files).
+    """
+    p = Path(base_path)
+    if not p.is_dir():
+        return {"is_classed": False, "classes": [], "total_images": 0}
+
+    subdirs = sorted(
+        [d for d in p.iterdir() if d.is_dir() and not d.name.startswith('.')],
+        key=lambda x: x.name,
+    )
+    if not subdirs:
+        return {"is_classed": False, "classes": [], "total_images": 0}
+
+    classes: list = []
+    total = 0
+    for d in subdirs:
+        try:
+            imgs = [
+                f for f in d.iterdir()
+                if f.is_file() and f.suffix.lower() in _IMAGE_EXTENSIONS
+            ]
+        except PermissionError:
+            continue
+        if imgs:
+            classes.append(d.name)
+            total += len(imgs)
+
+    return {"is_classed": bool(classes), "classes": classes, "total_images": total}
+
+
+@router.get("/detect-structure")
+def detect_structure(path: str = ""):
+    """Check whether a directory contains class subfolders (each subfolder holds images)."""
+    if not path:
+        return {"is_classed": False, "classes": [], "total_images": 0}
+    return _detect_class_structure(path)
+
+
+# ── Multi-class Pipeline B job ────────────────────────────────────────────────
+
+async def _run_pipeline_classed(job_id: str, req, classes: list):
+    """Run run_pipeline.py once per class subfolder, streaming output into a
+    single job so the GUI shows one continuous log.
+    Emits  [CLASS_DONE] <json>  markers consumed by the frontend.
+    """
+    job = job_manager.get_job(job_id)
+    if not job:
+        return
+
+    if job.status == job_manager.JobStatus.CANCELLED:
+        return
+
+    job.status = job_manager.JobStatus.RUNNING
+    job.logs.append(f"[gui] Classed run starting — {len(classes)} classes")
+
+    extra_kwargs: dict = {}
+    if sys.platform == "win32":
+        extra_kwargs["creationflags"] = _subprocess_mod.CREATE_NEW_PROCESS_GROUP
+
+    failed_classes: list = []
+
+    for cls in classes:
+        if job.status == job_manager.JobStatus.CANCELLED:
+            break
+
+        job.logs.append(f"[CLASS_START] {cls}")
+
+        # Build per-class config (deep-copy the flattened dict)
+        cfg = _build_run_pipeline_config(req)
+        cfg["input_hr_dir"] = str(Path(req.input_hr_dir) / cls)
+        if req.input_lr_dir:
+            cfg["input_lr_dir"] = str(Path(req.input_lr_dir) / cls)
+        out_hr = Path(req.output_hr_dir) / cls
+        out_lr = Path(req.output_lr_dir) / cls
+        cfg["output_hr_dir"] = str(out_hr)
+        cfg["output_lr_dir"] = str(out_lr)
+
+        config_path = TMP_DIR / f"run_pipeline_{req.task}_{cls}.json"
+        config_service.save_json(cfg, config_path)
+
+        cmd = [PIPELINE_PYTHON, str(RUN_PIPELINE_SCRIPT), "--config", str(config_path)]
+
+        try:
+            proc = _subprocess_mod.Popen(
+                cmd,
+                stdout=_subprocess_mod.PIPE,
+                stderr=_subprocess_mod.STDOUT,
+                cwd=str(PROJECT_ROOT),
+                env={**os.environ},
+                **extra_kwargs,
+            )
+            job.process = proc
+
+            def _stream(p=proc, j=job):
+                assert p.stdout is not None
+                for raw_line in p.stdout:
+                    j.logs.append(raw_line.decode("utf-8", errors="replace").rstrip())
+                p.wait()
+                return p.returncode or 0
+
+            rc = await asyncio.to_thread(_stream)
+
+            if job.status == job_manager.JobStatus.CANCELLED:
+                break
+
+            if rc != 0:
+                failed_classes.append(cls)
+                job.logs.append(f"[CLASS_FAIL] {cls} (exit {rc})")
+            else:
+                count = (
+                    len([f for f in out_hr.glob("*") if f.is_file()])
+                    if out_hr.is_dir()
+                    else 0
+                )
+                marker = json.dumps({
+                    "name": cls,
+                    "count": count,
+                    "hrDir": str(out_hr),
+                    "lrDir": str(out_lr),
+                })
+                job.logs.append(f"[CLASS_DONE] {marker}")
+
+        except asyncio.CancelledError:
+            job.status = job_manager.JobStatus.CANCELLED
+            break
+        except Exception as exc:
+            failed_classes.append(cls)
+            job.logs.append(f"[CLASS_FAIL] {cls} ({exc})")
+
+    job.process = None
+
+    if job.status == job_manager.JobStatus.CANCELLED:
+        return
+
+    # Optional per-class train/test split
+    if not failed_classes and req.train_test_split:
+        for cls in classes:
+            try:
+                _do_run_pipeline_split(
+                    Path(req.output_hr_dir) / cls,
+                    Path(req.output_lr_dir) / cls,
+                    req.train_ratio,
+                )
+            except Exception as exc:
+                job.logs.append(f"[gui] Split error for {cls}: {exc}")
+        job.logs.append(f"[gui] Train/test split complete for all classes")
+
+    done = len(classes) - len(failed_classes)
+    job.logs.append(f"[gui] Completed: {done}/{len(classes)} classes succeeded")
+    job.status = (
+        job_manager.JobStatus.FAILED
+        if failed_classes
+        else job_manager.JobStatus.COMPLETED
+    )
+    job.return_code = 1 if failed_classes else 0
 
 
 # ── Pipeline A — pipeline3.py ──────────────────────────────────────────────────
@@ -237,19 +418,23 @@ async def _run_pipeline_with_split(job_id: str, req: RunPipelineRequest, config_
 
 @router.post("/run-pipeline/start", response_model=JobResponse)
 async def start_run_pipeline(req: RunPipelineRequest):
-    """Write config JSON and launch preprocessing_pipeline/run_pipeline.py."""
-    cfg = _build_run_pipeline_config(req)
-    config_path = TMP_DIR / f"run_pipeline_{req.task}.json"
-    config_service.save_json(cfg, config_path)
+    """Write config JSON and launch preprocessing_pipeline/run_pipeline.py.
+    If input_hr_dir contains class subfolders, runs once per class automatically.
+    """
+    structure = _detect_class_structure(req.input_hr_dir)
 
-    cmd = [
-        PIPELINE_PYTHON,
-        str(RUN_PIPELINE_SCRIPT),
-        "--config",
-        str(config_path),
-    ]
-    job_id = job_manager.create_job(cmd=cmd, cwd=str(PROJECT_ROOT))
-    asyncio.create_task(_run_pipeline_with_split(job_id, req, config_path))
+    if structure["is_classed"] and structure["classes"]:
+        # Multi-class mode — one run_pipeline.py call per class subfolder
+        job_id = job_manager.create_job(cmd=[], cwd=str(PROJECT_ROOT))
+        asyncio.create_task(_run_pipeline_classed(job_id, req, structure["classes"]))
+    else:
+        # Original flat-directory mode
+        cfg = _build_run_pipeline_config(req)
+        config_path = TMP_DIR / f"run_pipeline_{req.task}.json"
+        config_service.save_json(cfg, config_path)
+        cmd = [PIPELINE_PYTHON, str(RUN_PIPELINE_SCRIPT), "--config", str(config_path)]
+        job_id = job_manager.create_job(cmd=cmd, cwd=str(PROJECT_ROOT))
+        asyncio.create_task(_run_pipeline_with_split(job_id, req, config_path))
 
     return JobResponse(job_id=job_id, status="pending")
 
@@ -299,3 +484,17 @@ def stop_job(job_id: str):
     if not job_manager.cancel_job(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
     return {"status": "cancelled", "job_id": job_id}
+
+
+@router.post("/pause/{job_id}")
+def pause_job(job_id: str):
+    if not job_manager.pause_job(job_id):
+        raise HTTPException(status_code=400, detail="Job not running or not found")
+    return {"status": "paused", "job_id": job_id}
+
+
+@router.post("/resume/{job_id}")
+def resume_job(job_id: str):
+    if not job_manager.resume_job(job_id):
+        raise HTTPException(status_code=400, detail="Job not paused or not found")
+    return {"status": "running", "job_id": job_id}

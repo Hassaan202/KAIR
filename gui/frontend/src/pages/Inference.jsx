@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import ReactCompareImage from 'react-compare-image'
+import { useJobContext } from '../context/JobContext'
 import {
   listInferenceTasks, listTrainingConfigs, getLatestModel,
   getConfigFromOptions, getConfigFromPath,
@@ -10,7 +11,7 @@ import {
 import LogConsole from '../components/LogConsole'
 import {
   SelectField, TextField, NumberField, BoolToggle,
-  ArrayEditor, CollapsibleSection,
+  ArrayEditor, CollapsibleSection, PathField,
 } from '../components/FormFields'
 /* ─── Constants ─────────────────────────────────────────────── */
 const UPSAMPLER_OPTIONS = ['pixelshuffle', 'pixelshuffledirect', 'nearest+conv']
@@ -123,7 +124,8 @@ function ModelSelectionCard({
         </>
       ) : (
         <>
-          <TextField label="Model path (.pth)" value={customModelPath} onChange={setCustomModelPath}
+          <PathField label="Model path (.pth)" mode="files" extensions=".pth,.pt"
+            value={customModelPath} onChange={setCustomModelPath}
             placeholder="superresolution/task/models/175000_E.pth" mono />
           {optionsFiles.length > 0 && (
             <div className="form-group" style={{ marginTop: 6 }}>
@@ -169,32 +171,60 @@ function ModelSelectionCard({
 
 /* ─── Model architecture section ───────────────────────────── */
 function ModelArchCard({ modelConfig, setMC, configSource = null }) {
-  const title = configSource ? (
-    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+  const [locked, setLocked] = useState(true)
+
+  const titleNode = (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
       Model Architecture (MODEL_CONFIG)
-      <span style={{ fontSize: 11, color: 'var(--ok)', fontWeight: 400 }}>✓ auto-loaded</span>
+      {configSource && (
+        <span style={{ fontSize: 11, color: 'var(--ok)', fontWeight: 400 }}>✓ auto-loaded</span>
+      )}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setLocked(l => !l) }}
+        title={locked ? 'Unlock config fields for editing' : 'Lock config fields'}
+        style={{
+          marginLeft: 4,
+          padding: '2px 8px',
+          fontSize: 11,
+          borderRadius: 'var(--radius-sm)',
+          border: `1px solid ${locked ? 'var(--line-2)' : 'var(--cobalt-deep)'}`,
+          background: locked ? 'var(--surface-2)' : 'var(--cobalt-soft)',
+          color: locked ? 'var(--ink-3)' : 'var(--cobalt-deep)',
+          cursor: 'pointer',
+          fontWeight: 500,
+        }}
+      >
+        {locked ? '🔒 Locked' : '🔓 Unlocked'}
+      </button>
     </span>
-  ) : 'Model Architecture (MODEL_CONFIG)'
+  )
+
   return (
-    <CollapsibleSection title={title} defaultOpen={false}>
+    <CollapsibleSection title={titleNode} defaultOpen={false}>
+      {locked && (
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12, padding: '6px 10px', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line-2)' }}>
+          Config is locked to prevent accidental edits. Click <strong>Unlocked</strong> above to edit.
+        </div>
+      )}
       <div className="grid-2">
-        <NumberField label="Upscale" value={modelConfig.upscale} onChange={v => setMC('upscale', v)} min={1} />
-        <NumberField label="In channels" value={modelConfig.in_chans} onChange={v => setMC('in_chans', v)} min={1} />
+        <NumberField label="Upscale" value={modelConfig.upscale} onChange={v => setMC('upscale', v)} min={1} disabled={locked} />
+        <NumberField label="In channels" value={modelConfig.in_chans} onChange={v => setMC('in_chans', v)} min={1} disabled={locked} />
       </div>
       <div className="grid-2">
-        <NumberField label="Image size (LR patch)" value={modelConfig.img_size} onChange={v => setMC('img_size', v)} min={16} step={8} />
-        <NumberField label="Window size" value={modelConfig.window_size} onChange={v => setMC('window_size', v)} min={4} step={2} />
+        <NumberField label="Image size (LR patch)" value={modelConfig.img_size} onChange={v => setMC('img_size', v)} min={16} step={8} disabled={locked} />
+        <NumberField label="Window size" value={modelConfig.window_size} onChange={v => setMC('window_size', v)} min={4} step={2} disabled={locked} />
       </div>
       <div className="grid-2">
-        <NumberField label="Embed dim" value={modelConfig.embed_dim} onChange={v => setMC('embed_dim', v)} min={60} step={12} />
-        <NumberField label="MLP ratio" value={modelConfig.mlp_ratio} onChange={v => setMC('mlp_ratio', v)} min={1} />
+        <NumberField label="Embed dim" value={modelConfig.embed_dim} onChange={v => setMC('embed_dim', v)} min={60} step={12} disabled={locked} />
+        <NumberField label="MLP ratio" value={modelConfig.mlp_ratio} onChange={v => setMC('mlp_ratio', v)} min={1} disabled={locked} />
       </div>
       <div className="grid-2">
-        <SelectField label="Upsampler" value={modelConfig.upsampler} onChange={v => setMC('upsampler', v)} options={UPSAMPLER_OPTIONS} />
-        <SelectField label="Resi connection" value={modelConfig.resi_connection} onChange={v => setMC('resi_connection', v)} options={RESI_OPTIONS} />
+        <SelectField label="Upsampler" value={modelConfig.upsampler} onChange={v => setMC('upsampler', v)} options={UPSAMPLER_OPTIONS} disabled={locked} />
+        <SelectField label="Resi connection" value={modelConfig.resi_connection} onChange={v => setMC('resi_connection', v)} options={RESI_OPTIONS} disabled={locked} />
       </div>
-      <ArrayEditor label="Depths" value={modelConfig.depths} onChange={v => setMC('depths', v)} />
-      <ArrayEditor label="Num heads" value={modelConfig.num_heads} onChange={v => setMC('num_heads', v)} />
+      <ArrayEditor label="Depths" value={modelConfig.depths} onChange={v => setMC('depths', v)} disabled={locked} />
+      <ArrayEditor label="Num heads" value={modelConfig.num_heads} onChange={v => setMC('num_heads', v)} disabled={locked} />
     </CollapsibleSection>
   )
 }
@@ -692,7 +722,7 @@ function parsePatchedMetrics(lines) {
   return hasData ? result : null
 }
 
-function PatchedTab({ tasks, optionsFiles }) {
+function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
   const [modelSource, setModelSource] = useState('auto')
   const [selectedTask, setSelectedTask] = useState('')
   const [latestInfo, setLatestInfo] = useState(null)
@@ -703,7 +733,6 @@ function PatchedTab({ tasks, optionsFiles }) {
     lr_dir: '', hr_dir: '', sr_dir: 'testsets/output/sr',
     tile: '', tile_overlap: 32, overwrite_sr: true, log_dir: 'testsets/output',
   })
-  const [jobId, setJobId] = useState(null)
   const [jobDone, setJobDone] = useState(false)
   const [patchedMetrics, setPatchedMetrics] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -768,13 +797,13 @@ function PatchedTab({ tasks, optionsFiles }) {
             onOptionsSelect={handleOptionsSelect} configSource={configSource}
           />
           <CollapsibleSection title="Input / Output Paths" defaultOpen>
-            <TextField label="LR image dir" value={inferConfig.lr_dir}
+            <PathField label="LR image dir" mode="dirs" value={inferConfig.lr_dir}
               onChange={v => setIC('lr_dir', v)} placeholder="testsets/my_test/lr" />
-            <TextField label="HR image dir" hint="ground truth for metrics"
+            <PathField label="HR image dir" mode="dirs" hint="ground truth for metrics"
               value={inferConfig.hr_dir} onChange={v => setIC('hr_dir', v)} placeholder="testsets/my_test/hr" />
-            <TextField label="SR output dir" value={inferConfig.sr_dir}
+            <PathField label="SR output dir" mode="dirs" value={inferConfig.sr_dir}
               onChange={v => setIC('sr_dir', v)} placeholder="testsets/my_test/sr" />
-            <TextField label="Log dir" value={inferConfig.log_dir}
+            <PathField label="Log dir" mode="dirs" value={inferConfig.log_dir}
               onChange={v => setIC('log_dir', v)} placeholder="testsets/my_test" />
             <div className="grid-2">
               <div className="form-group">
@@ -831,7 +860,7 @@ function PatchedTab({ tasks, optionsFiles }) {
 }
 
 /* ─── TAB 2: Raw HR+LR Inference ───────────────────────────── */
-function RawPairedTab({ tasks, optionsFiles }) {
+function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
   const [modelSource, setModelSource] = useState('auto')
   const [selectedTask, setSelectedTask] = useState('')
   const [latestInfo, setLatestInfo] = useState(null)
@@ -844,7 +873,6 @@ function RawPairedTab({ tasks, optionsFiles }) {
     output_dir: 'testsets/raw_inference_output', patch_size: 128,
     overlap: 32, scale_factor: 2,
   })
-  const [jobId, setJobId] = useState(null)
   const [jobDone, setJobDone] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -934,10 +962,11 @@ function RawPairedTab({ tasks, optionsFiles }) {
 
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title">Input Images</div>
-            <TextField label="LR raw image path" value={config.lr_path}
-              onChange={v => setCfg('lr_path', v)} placeholder="/path/to/lr.tif" mono />
+            <PathField label="LR raw image path" mode="files" extensions=".tif,.tiff,.jp2,.img"
+              value={config.lr_path} onChange={v => setCfg('lr_path', v)} placeholder="/path/to/lr.tif" mono />
             <MetaPill meta={lrMeta} />
-            <TextField label="HR raw image path" hint="ground truth"
+            <PathField label="HR raw image path" mode="files" extensions=".tif,.tiff,.jp2,.img"
+              hint="ground truth"
               value={config.hr_path} onChange={v => setCfg('hr_path', v)} placeholder="/path/to/hr.tif" mono />
             <MetaPill meta={hrMeta} />
             {lrMeta ? (
@@ -954,8 +983,8 @@ function RawPairedTab({ tasks, optionsFiles }) {
             ) : (
               <ArrayEditor label="HR RGB bands" value={config.hr_bands} onChange={v => setCfg('hr_bands', v)} />
             )}
-            <TextField label="Output directory" value={config.output_dir}
-              onChange={v => setCfg('output_dir', v)} placeholder="testsets/raw_inference_output" mono />
+            <PathField label="Output directory" mode="dirs"
+              value={config.output_dir} onChange={v => setCfg('output_dir', v)} placeholder="testsets/raw_inference_output" mono />
             <div className="grid-2">
               <NumberField label="Patch size (LR px)" value={config.patch_size}
                 onChange={v => setCfg('patch_size', v)} min={32} step={8} />
@@ -1052,7 +1081,7 @@ function RawPairedTab({ tasks, optionsFiles }) {
 }
 
 /* ─── TAB 3: LR-Only Inference ──────────────────────────────── */
-function LROnlyTab({ tasks, optionsFiles }) {
+function LROnlyTab({ tasks, optionsFiles, jobId, setJobId }) {
   const [modelSource, setModelSource] = useState('auto')
   const [selectedTask, setSelectedTask] = useState('')
   const [latestInfo, setLatestInfo] = useState(null)
@@ -1064,7 +1093,6 @@ function LROnlyTab({ tasks, optionsFiles }) {
     output_dir: 'testsets/raw_inference_output/lr_only',
     patch_size: 128, overlap: 32, scale_factor: 2,
   })
-  const [jobId, setJobId] = useState(null)
   const [jobDone, setJobDone] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -1126,8 +1154,8 @@ function LROnlyTab({ tasks, optionsFiles }) {
           />
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title">Input Image</div>
-            <TextField label="LR raw image path" value={config.lr_path}
-              onChange={v => setCfg('lr_path', v)} placeholder="/path/to/image.tif" mono />
+            <PathField label="LR raw image path" mode="files" extensions=".tif,.tiff,.jp2,.img"
+              value={config.lr_path} onChange={v => setCfg('lr_path', v)} placeholder="/path/to/image.tif" mono />
             <MetaPill meta={lrMeta} />
             {lrMeta ? (
               <BandCheckboxSelector
@@ -1136,8 +1164,8 @@ function LROnlyTab({ tasks, optionsFiles }) {
             ) : (
               <ArrayEditor label="LR RGB bands" value={config.lr_bands} onChange={v => setCfg('lr_bands', v)} />
             )}
-            <TextField label="Output directory" value={config.output_dir}
-              onChange={v => setCfg('output_dir', v)} placeholder="testsets/raw_inference_output/lr_only" mono />
+            <PathField label="Output directory" mode="dirs"
+              value={config.output_dir} onChange={v => setCfg('output_dir', v)} placeholder="testsets/raw_inference_output/lr_only" mono />
             <div className="grid-2">
               <NumberField label="Patch size (LR px)" value={config.patch_size}
                 onChange={v => setCfg('patch_size', v)} min={32} step={8} />
@@ -1201,6 +1229,7 @@ export default function Inference() {
   const [activeTab, setActiveTab] = useState(0)
   const [tasks, setTasks] = useState([])
   const [optionsFiles, setOptionsFiles] = useState([])
+  const { jobs, setJobId: setCtxJobId } = useJobContext()
 
   useEffect(() => {
     listInferenceTasks().then(r => setTasks(r.data)).catch(() => { })
@@ -1212,6 +1241,11 @@ export default function Inference() {
     { label: 'Raw HR+LR Inference', icon: '⟳' },
     { label: 'LR-Only Inference', icon: '↑' },
   ]
+
+  const makeJobProps = (key) => ({
+    jobId: jobs[key],
+    setJobId: (id) => setCtxJobId(key, id),
+  })
 
   return (
     <div>
@@ -1238,9 +1272,16 @@ export default function Inference() {
           ))}
         </div>
 
-        {activeTab === 0 && <PatchedTab tasks={tasks} optionsFiles={optionsFiles} />}
-        {activeTab === 1 && <RawPairedTab tasks={tasks} optionsFiles={optionsFiles} />}
-        {activeTab === 2 && <LROnlyTab tasks={tasks} optionsFiles={optionsFiles} />}
+        {/* Keep all tabs mounted to preserve running jobs and form state */}
+        <div style={{ display: activeTab === 0 ? 'block' : 'none' }}>
+          <PatchedTab tasks={tasks} optionsFiles={optionsFiles} {...makeJobProps('inference-patched')} />
+        </div>
+        <div style={{ display: activeTab === 1 ? 'block' : 'none' }}>
+          <RawPairedTab tasks={tasks} optionsFiles={optionsFiles} {...makeJobProps('inference-raw')} />
+        </div>
+        <div style={{ display: activeTab === 2 ? 'block' : 'none' }}>
+          <LROnlyTab tasks={tasks} optionsFiles={optionsFiles} {...makeJobProps('inference-lr')} />
+        </div>
       </div>
     </div>
   )

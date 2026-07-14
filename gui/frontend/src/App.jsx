@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { NavLink, Routes, Route, Navigate } from 'react-router-dom'
+import { NavLink, Navigate, useLocation } from 'react-router-dom'
 import Training from './pages/Training'
 import Inference from './pages/Inference'
 import Preprocessing from './pages/Preprocessing'
 import { checkHealth } from './api/client'
+import { JobProvider } from './context/JobContext'
 import suparcoLogo from '../assets/suparco logo.jpg'
 
 const SENSOR_PROFILES = [
@@ -183,6 +184,7 @@ const NAV_ITEMS = [
 ]
 
 export default function App() {
+  const location = useLocation()
   const [connected, setConnected] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [lastChecked, setLastChecked] = useState('')
@@ -223,6 +225,7 @@ export default function App() {
   }, [])
 
   return (
+    <JobProvider>
     <div className="app">
       {classesOpen && <ClassesModal onClose={() => setClassesOpen(false)} />}
 
@@ -329,15 +332,20 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Main content */}
+      {/* Main content — all pages stay mounted; only visibility changes */}
       <main className="main">
-        <Routes>
-          <Route path="/" element={<Navigate to="/training" replace />} />
-          <Route path="/training" element={<Training />} />
-          <Route path="/inference" element={<Inference />} />
-          <Route path="/preprocessing" element={<Preprocessing />} />
-        </Routes>
+        {location.pathname === '/' && <Navigate to="/training" replace />}
+        <div style={{ display: location.pathname === '/training' ? 'block' : 'none' }}>
+          <Training />
+        </div>
+        <div style={{ display: location.pathname === '/inference' ? 'block' : 'none' }}>
+          <Inference />
+        </div>
+        <div style={{ display: location.pathname === '/preprocessing' ? 'block' : 'none' }}>
+          <Preprocessing />
+        </div>
       </main>
     </div>
+    </JobProvider>
   )
 }

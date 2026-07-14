@@ -20,6 +20,7 @@ from typing import AsyncGenerator, Deque, Dict, Optional
 class JobStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
+    PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -114,7 +115,9 @@ async def launch_job(job_id: str) -> None:
 
         return_code = await asyncio.to_thread(_stream_output)
         job.return_code = return_code
-        job.status = JobStatus.COMPLETED if return_code == 0 else JobStatus.FAILED
+        # Don't overwrite an explicit CANCELLED status set by cancel_job()
+        if job.status != JobStatus.CANCELLED:
+            job.status = JobStatus.COMPLETED if return_code == 0 else JobStatus.FAILED
 
     except asyncio.CancelledError:
         job.status = JobStatus.CANCELLED
@@ -129,10 +132,15 @@ async def launch_job(job_id: str) -> None:
         job.status = JobStatus.FAILED
 
 
+_TERMINAL_STATUSES = (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
+
+
 async def stream_logs(job_id: str) -> AsyncGenerator[str, None]:
     """
     Async generator for SSE streaming.
-    Yields new log lines as they arrive, then sends a final status event.
+    Yields new log lines as they arrive, then sends a final 'status' event on completion.
+    Emits non-terminal 'status_update' events for PAUSED <-> RUNNING transitions
+    without closing the stream.
     """
     job = _jobs.get(job_id)
     if not job:
@@ -140,6 +148,8 @@ async def stream_logs(job_id: str) -> AsyncGenerator[str, None]:
         return
 
     sent = 0
+    last_status: Optional[JobStatus] = None
+
     while True:
         logs_snapshot = list(job.logs)
         new_lines = logs_snapshot[sent:]
@@ -147,19 +157,123 @@ async def stream_logs(job_id: str) -> AsyncGenerator[str, None]:
             yield f"data: {line}\n\n"
         sent += len(new_lines)
 
-        if job.status in (
-            JobStatus.COMPLETED,
-            JobStatus.FAILED,
-            JobStatus.CANCELLED,
-        ):
-            # Flush any remaining lines
+        current_status = job.status
+
+        # Emit interim status changes (PENDING/RUNNING/PAUSED) without closing the stream
+        if current_status != last_status and current_status not in _TERMINAL_STATUSES:
+            yield f"event: status_update\ndata: {current_status.value}\n\n"
+            last_status = current_status
+
+        if current_status in _TERMINAL_STATUSES:
+            # Flush any remaining lines then close
             logs_snapshot = list(job.logs)
             for line in logs_snapshot[sent:]:
                 yield f"data: {line}\n\n"
-            yield f"event: status\ndata: {job.status.value}\n\n"
+            yield f"event: status\ndata: {current_status.value}\n\n"
             break
 
         await asyncio.sleep(0.3)
+
+
+# ── Process suspend / resume / kill helpers ───────────────────────────────────
+
+def _suspend_process(proc: subprocess.Popen) -> None:
+    """Suspend the process and all its children."""
+    try:
+        import psutil
+        p = psutil.Process(proc.pid)
+        children = p.children(recursive=True)
+        for child in reversed(children):
+            try:
+                child.suspend()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        p.suspend()
+        return
+    except ImportError:
+        pass
+    # Fallback: Windows-only NtSuspendProcess via ctypes (parent process only)
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            PROCESS_SUSPEND_RESUME = 0x0800
+            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_SUSPEND_RESUME, False, proc.pid)
+            if handle:
+                ctypes.windll.ntdll.NtSuspendProcess(handle)
+                ctypes.windll.kernel32.CloseHandle(handle)
+        except Exception:
+            pass
+
+
+def _resume_process(proc: subprocess.Popen) -> None:
+    """Resume the process and all its children."""
+    try:
+        import psutil
+        p = psutil.Process(proc.pid)
+        p.resume()
+        children = p.children(recursive=True)
+        for child in children:
+            try:
+                child.resume()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        return
+    except ImportError:
+        pass
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            PROCESS_SUSPEND_RESUME = 0x0800
+            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_SUSPEND_RESUME, False, proc.pid)
+            if handle:
+                ctypes.windll.ntdll.NtResumeProcess(handle)
+                ctypes.windll.kernel32.CloseHandle(handle)
+        except Exception:
+            pass
+
+
+def _kill_process(proc: subprocess.Popen) -> None:
+    """Force-kill the process and all its children (works on suspended processes)."""
+    try:
+        import psutil
+        p = psutil.Process(proc.pid)
+        for child in reversed(p.children(recursive=True)):
+            try:
+                child.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        p.kill()
+        return
+    except (psutil.NoSuchProcess, psutil.AccessDenied, ImportError):
+        pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def pause_job(job_id: str) -> bool:
+    """Suspend the running subprocess. Sets status to PAUSED."""
+    job = _jobs.get(job_id)
+    if not job or job.status != JobStatus.RUNNING:
+        return False
+    if job.process and job.process.returncode is None:
+        _suspend_process(job.process)
+    job.status = JobStatus.PAUSED
+    job.logs.append("[gui] Job paused")
+    return True
+
+
+def resume_job(job_id: str) -> bool:
+    """Resume a paused subprocess. Sets status back to RUNNING."""
+    job = _jobs.get(job_id)
+    if not job or job.status != JobStatus.PAUSED:
+        return False
+    if job.process and job.process.returncode is None:
+        _resume_process(job.process)
+    job.status = JobStatus.RUNNING
+    job.logs.append("[gui] Job resumed")
+    return True
 
 
 def cancel_job(job_id: str) -> bool:
@@ -167,15 +281,19 @@ def cancel_job(job_id: str) -> bool:
     if not job:
         return False
     if job.process and job.process.returncode is None:
-        try:
-            if sys.platform == "win32":
-                # SIGTERM doesn't exist on Windows; use CTRL_BREAK_EVENT which
-                # is compatible with CREATE_NEW_PROCESS_GROUP children.
-                os.kill(job.process.pid, signal.CTRL_BREAK_EVENT)
-            else:
-                os.kill(job.process.pid, signal.SIGTERM)
-        except (ProcessLookupError, OSError):
-            pass
+        if job.status == JobStatus.PAUSED:
+            # Suspended processes on Windows can't receive signals — force kill instead
+            _kill_process(job.process)
+        else:
+            try:
+                if sys.platform == "win32":
+                    # SIGTERM doesn't exist on Windows; use CTRL_BREAK_EVENT which
+                    # is compatible with CREATE_NEW_PROCESS_GROUP children.
+                    os.kill(job.process.pid, signal.CTRL_BREAK_EVENT)
+                else:
+                    os.kill(job.process.pid, signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                pass
     job.status = JobStatus.CANCELLED
     return True
 

@@ -1,9 +1,15 @@
-import { useState, useRef } from 'react'
-import { startPipeline3, startRunPipeline, stopPreprocessing } from '../api/client'
+import { useState, useEffect, useRef } from 'react'
+import {
+  startPipeline3, startRunPipeline, stopPreprocessing,
+  pausePreprocessing, resumePreprocessing,
+  detectPreprocessingStructure, listDirectory, fsImageUrl,
+  getImageInfo, compareImages,
+} from '../api/client'
+import { useJobContext } from '../context/JobContext'
 import LogConsole from '../components/LogConsole'
 import {
   SelectField, TextField, NumberField, BoolToggle,
-  ArrayEditor, CollapsibleSection
+  ArrayEditor, CollapsibleSection, PathField
 } from '../components/FormFields'
 
 const PREVIEW_STAGES = [
@@ -78,6 +84,153 @@ function StepPreviewPanel({ previews }) {
   )
 }
 
+// ── Per-class results panel (Pipeline B classed-directory output) ─────────────
+
+function ImageSampleRow({ label, images, onLightbox }) {
+  if (!images.length) return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>No images found in output directory.</div>
+    </div>
+  )
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{label}</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {images.map((img) => {
+          const url = fsImageUrl(img.path)
+          return (
+            <div key={img.path}
+              style={{ flex: '1 1 90px', minWidth: 80, maxWidth: 130, cursor: 'pointer' }}
+              onClick={() => onLightbox({ url, name: img.name })}>
+              <img src={url} alt={img.name}
+                style={{ width: '100%', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line-2)', objectFit: 'cover', aspectRatio: '1/1', background: 'var(--bg-2)' }}
+                onError={e => { e.target.style.opacity = 0.3 }}
+              />
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 3, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{img.name}</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function ClassResultsPanel({ results }) {
+  const [selectedIdx, setSelectedIdx] = useState(0)
+  const [hrImages, setHrImages] = useState([])
+  const [lrImages, setLrImages] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [lightbox, setLightbox] = useState(null)
+
+  const cls = results[selectedIdx]
+  const IMG_EXT = '.png,.jpg,.jpeg,.bmp'
+
+  useEffect(() => {
+    if (!cls) return
+    setLoading(true)
+    setHrImages([])
+    setLrImages([])
+    Promise.all([
+      listDirectory(cls.hrDir, 'files', IMG_EXT).catch(() => ({ data: { entries: [] } })),
+      listDirectory(cls.lrDir, 'files', IMG_EXT).catch(() => ({ data: { entries: [] } })),
+    ]).then(([hr, lr]) => {
+      setHrImages(hr.data.entries.slice(0, 8))
+      setLrImages(lr.data.entries.slice(0, 8))
+    }).finally(() => setLoading(false))
+  }, [cls?.hrDir, cls?.lrDir])
+
+  if (!results.length) return null
+
+  const totalImages = results.reduce((s, r) => s + (r.count || 0), 0)
+
+  return (
+    <div style={{ marginBottom: 36 }}>
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.87)', zIndex: 9999,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out',
+        }}>
+          <div style={{ color: '#fff', fontSize: 14, fontWeight: 600, marginBottom: 12 }}>{lightbox.name}</div>
+          <img src={lightbox.url} alt={lightbox.name} style={{ maxWidth: '88vw', maxHeight: '82vh', borderRadius: 8 }} />
+          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 8 }}>click to close</div>
+        </div>
+      )}
+
+      <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>Per-Class Results</div>
+      <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 18 }}>
+        {results.length} classes processed · {totalImages.toLocaleString()} images total
+      </div>
+
+      {/* Class selector */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
+        {results.map((r, i) => (
+          <button key={r.name} type="button"
+            onClick={() => setSelectedIdx(i)}
+            style={{
+              padding: '4px 11px', fontSize: 12, borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+              border: `1px solid ${i === selectedIdx ? 'var(--cobalt-deep)' : 'var(--line-2)'}`,
+              background: i === selectedIdx ? 'var(--cobalt-soft)' : 'var(--surface)',
+              color: i === selectedIdx ? 'var(--cobalt-deep)' : 'var(--ink-2)',
+              fontWeight: i === selectedIdx ? 600 : 400,
+            }}>
+            {r.name}
+            <span style={{ marginLeft: 5, fontSize: 10, opacity: 0.65 }}>{(r.count || 0).toLocaleString()}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Selected class sample images */}
+      {cls && (
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 16 }}>
+            {cls.name}
+            <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 400, color: 'var(--ink-3)' }}>
+              {(cls.count || 0).toLocaleString()} images processed
+            </span>
+          </div>
+          {loading ? (
+            <div style={{ color: 'var(--ink-3)', fontSize: 12, padding: '12px 0' }}>Loading samples…</div>
+          ) : (
+            <>
+              <ImageSampleRow label="HR Output" images={hrImages} onLightbox={setLightbox} />
+              <ImageSampleRow label="LR Output" images={lrImages} onLightbox={setLightbox} />
+            </>
+          )}
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-3)' }}>
+            Showing up to 8 sample images per output. Click to enlarge.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const BAND_PRESETS = [
+  { key: 'pan',    label: 'Panchromatic — 1 band',                   n: 1,  bands: ['Pan'],                                                                           rgbHR: [1,1,1],   rgbLR: [1,1,1] },
+  { key: 'rgb',    label: 'RGB — 3 bands',                            n: 3,  bands: ['R','G','B'],                                                                     rgbHR: [1,2,3],   rgbLR: [1,2,3] },
+  { key: 'ms4',    label: 'Multispectral 4-band (Pleiades / Planet)', n: 4,  bands: ['B','G','R','NIR'],                                                               rgbHR: [3,2,1],   rgbLR: [3,2,1] },
+  { key: 'ms8',    label: 'Multispectral 8-band (WorldView)',         n: 8,  bands: ['C','B','G','Y','R','RE','NIR1','NIR2'],                                          rgbHR: [5,3,2],   rgbLR: [5,3,2] },
+  { key: 's2',     label: 'Sentinel-2 — 13 bands',                   n: 13, bands: ['B1','B2','B3','B4','B5','B6','B7','B8','B8A','B9','B10','B11','B12'],            rgbHR: [4,3,2],   rgbLR: [4,3,2] },
+  { key: 'custom', label: 'Custom…',                                  n: null, bands: [],                                                                              rgbHR: null,      rgbLR: null },
+]
+
+function MetaPill({ meta }) {
+  if (!meta) return null
+  return (
+    <div style={{
+      display: 'inline-flex', gap: 10, fontSize: 11, color: 'var(--cobalt-deep)',
+      background: 'var(--cobalt-soft)', borderRadius: 'var(--radius-sm)',
+      padding: '4px 10px', marginTop: 4, flexWrap: 'wrap',
+    }}>
+      <span>{meta.bands} band{meta.bands !== 1 ? 's' : ''}</span>
+      <span>·</span>
+      <span>{meta.width} × {meta.height} px</span>
+      {meta.format && <><span>·</span><span>{meta.format}</span></>}
+    </div>
+  )
+}
+
 // ── Pipeline A defaults ────────────────────────────────────────────────────────
 const DEFAULT_P3 = {
   hr_image_path: '', lr_image_path: '', output_dir: 'output_patches',
@@ -148,8 +301,52 @@ function Pipeline3Form({ onJobStart }) {
   const [form, setForm] = useState(DEFAULT_P3)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [bandPreset, setBandPreset] = useState('rgb')
+  const [customBandCount, setCustomBandCount] = useState(3)
+  const [hrMeta, setHrMeta] = useState(null)
+  const [lrMeta, setLrMeta] = useState(null)
+  const [pairPsnr, setPairPsnr] = useState(null)
+  const hrTimerRef = useRef(null)
+  const lrTimerRef = useRef(null)
+  const psnrTimerRef = useRef(null)
 
   const set = (path, value) => setForm((prev) => deepSet(prev, path, value))
+
+  const applyBandPreset = (key, customN = customBandCount) => {
+    const preset = BAND_PRESETS.find(p => p.key === key)
+    setBandPreset(key)
+    if (preset.n) setCustomBandCount(preset.n)
+    if (preset.rgbHR) setForm(prev => ({ ...prev, hr_rgb_bands: preset.rgbHR, lr_rgb_bands: preset.rgbLR }))
+  }
+
+  useEffect(() => {
+    clearTimeout(hrTimerRef.current)
+    if (!form.hr_image_path.trim()) { setHrMeta(null); return }
+    hrTimerRef.current = setTimeout(() => {
+      getImageInfo(form.hr_image_path).then(r => setHrMeta(r.data)).catch(() => setHrMeta(null))
+    }, 700)
+    return () => clearTimeout(hrTimerRef.current)
+  }, [form.hr_image_path])
+
+  useEffect(() => {
+    clearTimeout(lrTimerRef.current)
+    if (!form.lr_image_path.trim()) { setLrMeta(null); return }
+    lrTimerRef.current = setTimeout(() => {
+      getImageInfo(form.lr_image_path).then(r => setLrMeta(r.data)).catch(() => setLrMeta(null))
+    }, 700)
+    return () => clearTimeout(lrTimerRef.current)
+  }, [form.lr_image_path])
+
+  useEffect(() => {
+    clearTimeout(psnrTimerRef.current)
+    if (!form.hr_image_path.trim() || !form.lr_image_path.trim()) { setPairPsnr(null); return }
+    psnrTimerRef.current = setTimeout(() => {
+      compareImages(form.hr_image_path, form.lr_image_path)
+        .then(r => setPairPsnr(r.data))
+        .catch(() => setPairPsnr(null))
+    }, 1200)
+    return () => clearTimeout(psnrTimerRef.current)
+  }, [form.hr_image_path, form.lr_image_path])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -169,15 +366,70 @@ function Pipeline3Form({ onJobStart }) {
     <form onSubmit={handleSubmit}>
       {/* ── Paths ── */}
       <CollapsibleSection title="Input / Output Paths" defaultOpen>
-        <TextField label="HR image path" hint=".JP2 or GeoTIFF"
+        <PathField label="HR image path" hint=".JP2, GeoTIFF, PNG, JPG, BMP…" mode="files"
+          extensions=".jp2,.tif,.tiff,.png,.jpg,.jpeg,.bmp,.img,.nitf,.nc,.hdr"
           value={form.hr_image_path} onChange={(v) => set('hr_image_path', v)}
           placeholder="path/to/HR.JP2" />
-        <TextField label="LR image path" hint=".JP2 or GeoTIFF"
+        <MetaPill meta={hrMeta} />
+        <PathField label="LR image path" hint=".JP2, GeoTIFF, PNG, JPG, BMP…" mode="files"
+          extensions=".jp2,.tif,.tiff,.png,.jpg,.jpeg,.bmp,.img,.nitf,.nc,.hdr"
           value={form.lr_image_path} onChange={(v) => set('lr_image_path', v)}
           placeholder="path/to/LR.JP2" />
-        <TextField label="Output directory"
+        <MetaPill meta={lrMeta} />
+        <PathField label="Output directory" mode="dirs"
           value={form.output_dir} onChange={(v) => set('output_dir', v)}
           placeholder="output_patches" />
+        {pairPsnr && (
+          <div style={{
+            background: 'var(--surface)', border: '1px solid var(--line-2)',
+            borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginTop: 4,
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+              HR / LR Comparison
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+              <span style={{ color: 'var(--ink-2)' }}>PSNR (LR upsampled → HR)</span>
+              <span style={{
+                fontFamily: 'monospace', fontWeight: 700,
+                color: pairPsnr.psnr >= 32 ? 'var(--ok)' : pairPsnr.psnr >= 25 ? 'var(--ink)' : 'var(--bad)',
+              }}>
+                {pairPsnr.psnr} dB
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--ink-3)' }}>
+              <span>HR: {pairPsnr.hr_bands} bands · {pairPsnr.hr_width}×{pairPsnr.hr_height}</span>
+              <span>LR: {pairPsnr.lr_bands} bands · {pairPsnr.lr_width}×{pairPsnr.lr_height}</span>
+              <span>{pairPsnr.bands_compared} band{pairPsnr.bands_compared !== 1 ? 's' : ''} compared</span>
+            </div>
+          </div>
+        )}
+        <div className="form-group">
+          <label>Sensor / input bands</label>
+          <select className="text-input" value={bandPreset} onChange={e => applyBandPreset(e.target.value)}>
+            {BAND_PRESETS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+          {bandPreset === 'custom' ? (
+            <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="number" className="num-input" style={{ width: 80 }}
+                value={customBandCount} min={1} max={200}
+                onChange={e => {
+                  const n = Math.max(1, parseInt(e.target.value) || 1)
+                  setCustomBandCount(n)
+                  applyBandPreset('custom', n)
+                }} />
+              <span style={{ fontSize: 12, color: 'var(--ink-2)' }}>bands</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
+              {BAND_PRESETS.find(p => p.key === bandPreset)?.bands.map(b => (
+                <span key={b} style={{
+                  padding: '2px 7px', borderRadius: 10, fontSize: 11, fontWeight: 500,
+                  background: 'var(--bg-2)', border: '1px solid var(--line-2)', color: 'var(--ink-2)',
+                }}>{b}</span>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="grid-2">
           <ArrayEditor label="HR RGB bands (1-indexed)" value={form.hr_rgb_bands}
             onChange={(v) => set('hr_rgb_bands', v)} />
@@ -194,9 +446,11 @@ function Pipeline3Form({ onJobStart }) {
             options={[{ value: 2, label: '×2' }, { value: 4, label: '×4' }]} />
           <NumberField label="HR patch size" value={form.hr_patch_size}
             onChange={(v) => set('hr_patch_size', v)} min={64} step={32}
-            hint={`LR = ${form.hr_patch_size / form.scale_factor}`} />
+            hint={`LR = ${form.hr_patch_size / form.scale_factor}`}
+            tooltip="Size of extracted HR patches in pixels. Corresponding LR patch = HR size ÷ scale factor." />
           <NumberField label="Stride" value={form.stride}
-            onChange={(v) => set('stride', v)} min={16} step={16} />
+            onChange={(v) => set('stride', v)} min={16} step={16}
+            tooltip="Step size (pixels) between consecutive patch windows. Setting lower than patch size creates overlapping patches, yielding more training data at the cost of speed." />
         </div>
       </CollapsibleSection>
 
@@ -204,15 +458,19 @@ function Pipeline3Form({ onJobStart }) {
       <CollapsibleSection title="Quality Filters" defaultOpen={false}>
         <div className="grid-2">
           <NumberField label="Max nodata fraction" value={form.max_nodata_fraction}
-            onChange={(v) => set('max_nodata_fraction', v)} min={0} max={1} step={0.01} />
+            onChange={(v) => set('max_nodata_fraction', v)} min={0} max={1} step={0.01}
+            tooltip="Maximum fraction of nodata/zero-value pixels allowed per patch. Patches exceeding this are discarded." />
           <NumberField label="Min variance" value={form.min_variance}
-            onChange={(v) => set('min_variance', v)} min={0} step={10} />
+            onChange={(v) => set('min_variance', v)} min={0} step={10}
+            tooltip="Minimum pixel variance threshold. Featureless patches (uniform cloud, water, bare ground) below this are rejected." />
         </div>
         <div className="grid-2">
           <NumberField label="Min ECC score" value={form.min_ecc_score}
-            onChange={(v) => set('min_ecc_score', v)} min={0} max={1} step={0.01} />
+            onChange={(v) => set('min_ecc_score', v)} min={0} max={1} step={0.01}
+            tooltip="Per-patch ECC coregistration quality score [0–1]. Patches below this threshold are discarded as misaligned between HR and LR." />
           <NumberField label="Min SSIM" value={form.min_ssim}
-            onChange={(v) => set('min_ssim', v)} min={0} max={1} step={0.01} />
+            onChange={(v) => set('min_ssim', v)} min={0} max={1} step={0.01}
+            tooltip="Structural similarity [0–1] between HR and LR patch. Low values indicate poor co-registration; such patches are rejected." />
         </div>
         <div className="grid-2">
           <NumberField label="Nodata value" value={form.nodata_value}
@@ -230,9 +488,11 @@ function Pipeline3Form({ onJobStart }) {
         {form.coreg_a.enabled && (
           <div className="grid-2">
             <NumberField label="Max features" value={form.coreg_a.max_features}
-              onChange={(v) => set('coreg_a.max_features', v)} min={100} step={500} />
+              onChange={(v) => set('coreg_a.max_features', v)} min={100} step={500}
+              tooltip="Max ORB keypoints to detect. Higher = better coverage on complex imagery, at the cost of speed." />
             <NumberField label="RANSAC thresh" value={form.coreg_a.ransac_thresh}
-              onChange={(v) => set('coreg_a.ransac_thresh', v)} min={0.5} step={0.5} />
+              onChange={(v) => set('coreg_a.ransac_thresh', v)} min={0.5} step={0.5}
+              tooltip="Max reprojection error (px) for RANSAC inlier selection. Lower = stricter alignment filtering; fewer but higher-quality matches." />
           </div>
         )}
         <div className="section-title" style={{ marginTop: 16 }}><h3>Stage B — Phase Correlation</h3></div>
@@ -262,19 +522,21 @@ function Pipeline3Form({ onJobStart }) {
         </div>
         <BoolToggle label="Post histogram matching (correct NIR leakage)"
           value={form.radiometric_post_hist_match}
-          onChange={(v) => set('radiometric_post_hist_match', v)} />
+          onChange={(v) => set('radiometric_post_hist_match', v)}
+          tooltip="Applies histogram matching after linear regression to correct residual colour / NIR band leakage between spectral channels." />
       </CollapsibleSection>
 
       {/* ── Train/test split ── */}
       <CollapsibleSection title="Train / Test Split" defaultOpen={false}>
         <BoolToggle label="Apply train/test split after pipeline completes"
-          value={form.train_test_split} onChange={(v) => set('train_test_split', v)} />
+          value={form.train_test_split} onChange={(v) => set('train_test_split', v)}
+          tooltip="Randomly split extracted patches into separate train and test directories after the pipeline finishes." />
         {form.train_test_split && (
           <>
             <NumberField label="Train ratio" value={form.train_ratio}
               onChange={(v) => set('train_ratio', v)} min={0.1} max={0.99} step={0.05} />
-            <TextField label="Test output directory (optional)"
-              hint="defaults to OUTPUT_DIR_test"
+            <PathField label="Test output directory (optional)"
+              hint="defaults to OUTPUT_DIR_test" mode="dirs"
               value={form.test_output_dir} onChange={(v) => set('test_output_dir', v)} />
           </>
         )}
@@ -296,8 +558,32 @@ function RunPipelineForm({ onJobStart }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const fileInputRef = useRef(null)
+  const [classStructure, setClassStructure] = useState(null)
+  const detectDebounceRef = useRef(null)
+  const [bandPreset, setBandPreset] = useState('rgb')
+  const [customBandCount, setCustomBandCount] = useState(3)
+
+  useEffect(() => {
+    clearTimeout(detectDebounceRef.current)
+    if (!form.input_hr_dir.trim()) { setClassStructure(null); return }
+    detectDebounceRef.current = setTimeout(async () => {
+      try {
+        const r = await detectPreprocessingStructure(form.input_hr_dir)
+        setClassStructure(r.data)
+      } catch { setClassStructure(null) }
+    }, 800)
+    return () => clearTimeout(detectDebounceRef.current)
+  }, [form.input_hr_dir])
 
   const set = (path, value) => setForm((prev) => deepSet(prev, path, value))
+
+  const applyBands = (key, customN = customBandCount) => {
+    const preset = BAND_PRESETS.find(p => p.key === key)
+    const n = preset.n ?? customN
+    setBandPreset(key)
+    if (preset.n) setCustomBandCount(preset.n)
+    set('n_channels', n)
+  }
 
   const handleLoadDegradationFile = (e) => {
     const file = e.target.files[0]
@@ -316,18 +602,11 @@ function RunPipelineForm({ onJobStart }) {
   }
 
   const handleSaveDegradationFile = () => {
-    const cfg = {
-      degradation_type: form.degradation_type,
-      bsrgan: form.bsrgan,
-      real_esrgan: form.real_esrgan,
-      bsrgan_plus: form.bsrgan_plus,
-      satellite: form.satellite,
-    }
-    const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' })
+    const blob = new Blob([JSON.stringify(form, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `degradation_${form.degradation_type}.json`
+    a.download = 'pipeline_b_config.json'
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -364,25 +643,72 @@ function RunPipelineForm({ onJobStart }) {
             options={[{ value: 2, label: '×2' }, { value: 3, label: '×3' }, { value: 4, label: '×4' }]} />
         </div>
         <div className="grid-2">
-          <SelectField label="Channels" value={form.n_channels}
-            onChange={(v) => set('n_channels', parseInt(v))}
-            options={[{ value: 1, label: 'Grayscale (1)' }, { value: 3, label: 'RGB (3)' }]} />
+          <div className="form-group">
+            <label>Input bands</label>
+            <select className="text-input" value={bandPreset} onChange={e => applyBands(e.target.value)}>
+              {BAND_PRESETS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+            </select>
+            {bandPreset === 'custom' ? (
+              <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="number" className="num-input" style={{ width: 80 }}
+                  value={customBandCount} min={1} max={200}
+                  onChange={e => {
+                    const n = Math.max(1, parseInt(e.target.value) || 1)
+                    setCustomBandCount(n)
+                    applyBands('custom', n)
+                  }} />
+                <span style={{ fontSize: 12, color: 'var(--ink-2)' }}>bands</span>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
+                {BAND_PRESETS.find(p => p.key === bandPreset)?.bands.map(b => (
+                  <span key={b} style={{
+                    padding: '2px 7px', borderRadius: 10, fontSize: 11, fontWeight: 500,
+                    background: 'var(--bg-2)', border: '1px solid var(--line-2)', color: 'var(--ink-2)',
+                  }}>{b}</span>
+                ))}
+              </div>
+            )}
+          </div>
           <NumberField label="Workers" value={form.num_workers}
             onChange={(v) => set('num_workers', v)} min={1} />
         </div>
       </CollapsibleSection>
 
       <CollapsibleSection title="Paths" defaultOpen>
-        <TextField label="Input HR dir" value={form.input_hr_dir}
+        <PathField label="Input HR dir" mode="dirs" value={form.input_hr_dir}
           onChange={(v) => set('input_hr_dir', v)} />
+        {classStructure && classStructure.is_classed && (
+          <div style={{
+            background: 'var(--cobalt-soft)', border: '1px solid var(--cobalt-deep)',
+            borderRadius: 'var(--radius-sm)', padding: '8px 12px', fontSize: 12,
+            color: 'var(--cobalt-deep)', marginTop: 4, marginBottom: 4,
+          }}>
+            <strong>{classStructure.classes.length} classes detected</strong>
+            {' · '}{classStructure.total_images.toLocaleString()} total images
+            {classStructure.classes.length <= 10 && (
+              <span style={{ color: 'var(--ink-2)', marginLeft: 8 }}>
+                ({classStructure.classes.slice(0, 5).join(', ')}{classStructure.classes.length > 5 ? `, +${classStructure.classes.length - 5} more` : ''})
+              </span>
+            )}
+            <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-2)' }}>
+              Pipeline will run once per class. Outputs → {form.output_hr_dir || 'output_hr'}/<em>class</em>/ and {form.output_lr_dir || 'output_lr'}/<em>class</em>/
+            </div>
+          </div>
+        )}
+        {classStructure && !classStructure.is_classed && form.input_hr_dir.trim() && (
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2, marginBottom: 4 }}>
+            Flat directory — all images processed together
+          </div>
+        )}
         {form.pipeline_mode === 'hr_lr_pair' && (
-          <TextField label="Input LR dir" value={form.input_lr_dir}
+          <PathField label="Input LR dir" mode="dirs" value={form.input_lr_dir}
             onChange={(v) => set('input_lr_dir', v)} />
         )}
         <div className="grid-2">
-          <TextField label="Output HR dir" value={form.output_hr_dir}
+          <PathField label="Output HR dir" mode="dirs" value={form.output_hr_dir}
             onChange={(v) => set('output_hr_dir', v)} />
-          <TextField label="Output LR dir" value={form.output_lr_dir}
+          <PathField label="Output LR dir" mode="dirs" value={form.output_lr_dir}
             onChange={(v) => set('output_lr_dir', v)} />
         </div>
         <div className="grid-2">
@@ -390,7 +716,8 @@ function RunPipelineForm({ onJobStart }) {
             onChange={(v) => set('save_format', v)}
             options={['png', 'tif', 'jpg']} />
           <BoolToggle label="Save HR copy" value={form.save_hr_copy}
-            onChange={(v) => set('save_hr_copy', v)} />
+            onChange={(v) => set('save_hr_copy', v)}
+            tooltip="Save a copy of the (optionally normalised) HR image to the output HR directory alongside the synthetic LR." />
         </div>
       </CollapsibleSection>
 
@@ -406,11 +733,11 @@ function RunPipelineForm({ onJobStart }) {
           <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
             <button type="button" className="btn" style={{ fontSize: 12, padding: '5px 12px' }}
               onClick={() => fileInputRef.current?.click()}>
-              ↑ Load from file
+              ↑ Load config
             </button>
             <button type="button" className="btn" style={{ fontSize: 12, padding: '5px 12px' }}
               onClick={handleSaveDegradationFile}>
-              ↓ Save config
+              ↓ Save full config
             </button>
           </div>
           <SelectField label="Degradation type" value={form.degradation_type}
@@ -420,9 +747,11 @@ function RunPipelineForm({ onJobStart }) {
           {deg === 'bsrgan' && (
             <div className="grid-2">
               <NumberField label="JPEG prob" value={form.bsrgan.jpeg_prob}
-                onChange={(v) => set('bsrgan.jpeg_prob', v)} min={0} max={1} step={0.05} />
+                onChange={(v) => set('bsrgan.jpeg_prob', v)} min={0} max={1} step={0.05}
+                tooltip="Probability of applying JPEG compression artifact simulation per degradation pass." />
               <NumberField label="ISP prob" value={form.bsrgan.isp_prob}
-                onChange={(v) => set('bsrgan.isp_prob', v)} min={0} max={1} step={0.05} />
+                onChange={(v) => set('bsrgan.isp_prob', v)} min={0} max={1} step={0.05}
+                tooltip="Probability of applying camera ISP pipeline simulation (tone mapping, colour space conversion)." />
               <NumberField label="Noise level 1" value={form.bsrgan.noise_level1}
                 onChange={(v) => set('bsrgan.noise_level1', v)} min={0} step={1} />
               <NumberField label="Noise level 2" value={form.bsrgan.noise_level2}
@@ -440,7 +769,8 @@ function RunPipelineForm({ onJobStart }) {
                   onChange={(v) => set('satellite.blur_type_1', v)}
                   options={['mtf', 'anisotropic']} />
                 <NumberField label="Stage 1 blur prob" value={form.satellite.blur_prob_1}
-                  onChange={(v) => set('satellite.blur_prob_1', v)} min={0} max={1} step={0.05} />
+                  onChange={(v) => set('satellite.blur_prob_1', v)} min={0} max={1} step={0.05}
+                  tooltip="Probability of applying MTF/PSF convolution blur in stage 1 of the two-stage satellite degradation pipeline." />
               </div>
               <div className="grid-2">
                 <NumberField label="Poisson prob (stage 1)" value={form.satellite.poisson_prob_1}
@@ -457,7 +787,8 @@ function RunPipelineForm({ onJobStart }) {
               <ArrayEditor label="MTF optics sigma range [min, max]"
                 value={form.satellite.mtf_sigma_optics_range}
                 onChange={(v) => set('satellite.mtf_sigma_optics_range', v)}
-                integer={false} />
+                integer={false}
+                tooltip="Gaussian sigma range [min, max] (px) for optical lens MTF blur. Higher values simulate blurrier optics / larger PSF." />
             </>
           )}
 
@@ -483,20 +814,24 @@ function RunPipelineForm({ onJobStart }) {
 
       <CollapsibleSection title="Normalisation" defaultOpen={false}>
         <BoolToggle label="Enable percentile normalisation"
-          value={form.normalize_enabled} onChange={(v) => set('normalize_enabled', v)} />
+          value={form.normalize_enabled} onChange={(v) => set('normalize_enabled', v)}
+          tooltip="Scale pixel values using percentile clipping before saving, ensuring outputs land in a consistent 0–255 display range." />
         {form.normalize_enabled && (
           <div className="grid-2">
             <NumberField label="Low percentile" value={form.normalize_low_percentile}
-              onChange={(v) => set('normalize_low_percentile', v)} min={0} max={49} step={0.5} />
+              onChange={(v) => set('normalize_low_percentile', v)} min={0} max={49} step={0.5}
+              tooltip="Pixel value at this percentile maps to 0 in the normalised output (dark clip point)." />
             <NumberField label="High percentile" value={form.normalize_high_percentile}
-              onChange={(v) => set('normalize_high_percentile', v)} min={51} max={100} step={0.5} />
+              onChange={(v) => set('normalize_high_percentile', v)} min={51} max={100} step={0.5}
+              tooltip="Pixel value at this percentile maps to 255 in the normalised output (bright clip point)." />
           </div>
         )}
       </CollapsibleSection>
 
       <CollapsibleSection title="Train / Test Split" defaultOpen={false}>
         <BoolToggle label="Split outputs into train/test sets after completion"
-          value={form.train_test_split} onChange={(v) => set('train_test_split', v)} />
+          value={form.train_test_split} onChange={(v) => set('train_test_split', v)}
+          tooltip="Shuffle and split all processed output images into train/test directories after the pipeline completes." />
         {form.train_test_split && (
           <NumberField label="Train ratio" value={form.train_ratio}
             onChange={(v) => set('train_ratio', v)} min={0.1} max={0.99} step={0.05} />
@@ -516,23 +851,48 @@ function RunPipelineForm({ onJobStart }) {
 
 export default function Preprocessing() {
   const [activeTab, setActiveTab] = useState(0)
-  const [jobId, setJobId] = useState(null)
+  const { jobs, setJobId: setCtxJobId } = useJobContext()
+  const jobId = jobs['preprocessing']
+  const setJobId = (id) => setCtxJobId('preprocessing', id)
   const [previewMap, setPreviewMap] = useState({})
+  const [classResults, setClassResults] = useState([])
 
   const handleStop = async () => {
     if (jobId) await stopPreprocessing(jobId).catch(() => { })
   }
 
+  const handlePause = async () => {
+    if (jobId) await pausePreprocessing(jobId).catch(() => { })
+  }
+
+  const handleResume = async () => {
+    if (jobId) await resumePreprocessing(jobId).catch(() => { })
+  }
+
   const handleJobStart = (jid) => {
     setJobId(jid)
     setPreviewMap({})
+    setClassResults([])
+  }
+
+  const handleLogLine = (line) => {
+    if (line.startsWith('[CLASS_DONE] ')) {
+      try {
+        const data = JSON.parse(line.slice('[CLASS_DONE] '.length))
+        setClassResults(prev => [...prev, data])
+      } catch { }
+    }
   }
 
   const previewCount = Object.keys(previewMap).length
+  const hasClassResults = classResults.length > 0
   const tabs = [
     { label: 'Pipeline A — Pleiades' },
     { label: 'Pipeline B — HR Degradation' },
-    { label: 'Step Preview', badge: previewCount > 0 ? previewCount : null },
+    {
+      label: hasClassResults ? 'Class Results' : 'Step Preview',
+      badge: hasClassResults ? classResults.length : previewCount > 0 ? previewCount : null,
+    },
   ]
 
   return (
@@ -573,28 +933,35 @@ export default function Preprocessing() {
             <div className="col">
               {activeTab === 0 && (
                 <div className="animate-in">
-                  <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 12 }}>
                     <span style={{ fontSize: 15, fontWeight: 600 }}>Pleiades / Multi-sensor Patch Extraction</span>
                   </div>
-                  <p style={{ color: 'var(--ink-3)', fontSize: 12.5, marginBottom: 20, lineHeight: 1.5 }}>
-                    Takes paired HR + LR GeoTIFF or JP2 satellite images, performs 3-stage
-                    coregistration (ORB → Phase Correlation → ECC), radiometric regression,
-                    and extracts quality-filtered patch pairs.
-                  </p>
+                  <ol style={{ color: 'var(--ink-3)', fontSize: 12.5, marginBottom: 20, lineHeight: 1.7, paddingLeft: 18 }}>
+                    <li>Load paired HR + LR GeoTIFF or JP2 satellite images</li>
+                    <li>Stage A — ORB keypoint matching &amp; RANSAC homography (coarse global alignment)</li>
+                    <li>Stage B — Phase correlation FFT sub-pixel shift</li>
+                    <li>Stage C — Per-patch ECC refinement (local alignment)</li>
+                    <li>Radiometric regression (linear LR→HR normalisation) + optional histogram matching</li>
+                    <li>Sliding-window patch extraction with quality filters (variance, nodata, SSIM, ECC)</li>
+                    <li>Optional train/test split of extracted patches</li>
+                  </ol>
                   <Pipeline3Form onJobStart={handleJobStart} />
                 </div>
               )}
               {activeTab === 1 && (
                 <div className="animate-in">
-                  <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 12 }}>
                     <span style={{ fontSize: 15, fontWeight: 600 }}>HR-only / HR+LR Pair Preprocessing</span>
                   </div>
-                  <p style={{ color: 'var(--ink-3)', fontSize: 12.5, marginBottom: 20, lineHeight: 1.5 }}>
-                    Processes HR images with optional normalisation and cloud masking.
-                    In HR-only mode, generates synthetic LR via BSRGAN, Real-ESRGAN, or
-                    satellite-optimized degradation. In HR+LR pair mode, preprocesses both
-                    HR and LR without degradation.
-                  </p>
+                  <ol style={{ color: 'var(--ink-3)', fontSize: 12.5, marginBottom: 20, lineHeight: 1.7, paddingLeft: 18 }}>
+                    <li>Load HR images (and optionally matching LR images for HR+LR pair mode)</li>
+                    <li>Optional cloud masking (Sentinel-2 s2cloudless, 10-band)</li>
+                    <li>Optional percentile normalisation (scales to 8-bit output range)</li>
+                    <li><strong>HR-only mode:</strong> degrade HR → synthetic LR via BSRGAN / Real-ESRGAN / BSRGAN+ / Satellite MTF</li>
+                    <li><strong>HR+LR pair mode:</strong> preprocess both HR and LR as-is without degradation</li>
+                    <li>Save HR and LR images to output directories in chosen format (PNG / TIF / JPG)</li>
+                    <li>Optional train/test split of saved images</li>
+                  </ol>
                   <RunPipelineForm onJobStart={handleJobStart} />
                 </div>
               )}
@@ -605,7 +972,10 @@ export default function Preprocessing() {
                   domain="preprocessing"
                   jobId={jobId}
                   onStop={handleStop}
+                  onPause={handlePause}
+                  onResume={handleResume}
                   onPreviewsChange={setPreviewMap}
+                  onLine={handleLogLine}
                 />
               )}
             </div>
@@ -614,7 +984,9 @@ export default function Preprocessing() {
 
         {activeTab === 2 && (
           <div className="rise" style={{ animationDelay: '80ms' }}>
-            <StepPreviewPanel previews={previewMap} />
+            {hasClassResults && <ClassResultsPanel results={classResults} />}
+            {previewCount > 0 && <StepPreviewPanel previews={previewMap} />}
+            {!hasClassResults && previewCount === 0 && <StepPreviewPanel previews={{}} />}
           </div>
         )}
       </div>

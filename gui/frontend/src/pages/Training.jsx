@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
   listTrainingConfigs, getTrainingConfig, listTrainingRuns,
-  startTraining, stopTraining
+  startTraining, stopTraining, pauseTraining, resumeTraining
 } from '../api/client'
+import { useJobContext } from '../context/JobContext'
 import LogConsole from '../components/LogConsole'
 import {
   SelectField, TextField, NumberField, BoolToggle,
-  ArrayEditor, CollapsibleSection
+  ArrayEditor, CollapsibleSection, PathField
 } from '../components/FormFields'
 
 const SCALE_OPTIONS = [
@@ -99,16 +100,46 @@ function deepSet(obj, path, value) {
   return next
 }
 
+function formatTrainingElapsed(sec) {
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = sec % 60
+  if (h > 0) return `${h}h ${m}m ${s}s`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
+}
+
+function parseTrainingMetrics(lines) {
+  let psnr = null, ssim = null, loss = null, finalIter = null
+  for (const line of lines) {
+    const iterM = line.match(/\b(\d+)\/\d+\b/) || line.match(/iter[:\s]+(\d+)/i)
+    if (iterM) finalIter = parseInt(iterM[1])
+    const psnrM = line.match(/psnr[:\s]+([0-9.]+)/i)
+    if (psnrM) psnr = parseFloat(psnrM[1])
+    const ssimM = line.match(/ssim[:\s]+([0-9.]+)/i)
+    if (ssimM) ssim = parseFloat(ssimM[1])
+    const lossM = line.match(/G_loss[:\s]+([0-9.]+)/i)
+    if (lossM) loss = parseFloat(lossM[1])
+  }
+  return { psnr, ssim, loss, finalIter }
+}
+
 export default function Training() {
   const [mode, setMode] = useState('psnr')
   const [form, setForm] = useState(DEFAULT_PSNR)
   const [configs, setConfigs] = useState([])
   const [runs, setRuns] = useState([])
-  const [jobId, setJobId] = useState(null)
+  const { jobs, setJobId: setCtxJobId } = useJobContext()
+  const jobId = jobs['training']
+  const setJobId = (id) => setCtxJobId('training', id)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [bandPreset, setBandPreset] = useState('rgb')
   const [customBandCount, setCustomBandCount] = useState(3)
+  const [trainingMetrics, setTrainingMetrics] = useState(null)
+  const [jobDone, setJobDone] = useState(false)
+  const allLinesRef = useRef([])
+  const startTimeRef = useRef(null)
 
   const set = (path, value) => setForm((prev) => deepSet(prev, path, value))
 
@@ -144,6 +175,10 @@ export default function Training() {
     e.preventDefault()
     setError('')
     setLoading(true)
+    setJobDone(false)
+    setTrainingMetrics(null)
+    allLinesRef.current = []
+    startTimeRef.current = Date.now()
     try {
       const payload = { ...form, training_type: mode }
       const r = await startTraining(payload)
@@ -157,6 +192,23 @@ export default function Training() {
 
   const handleStop = async () => {
     if (jobId) await stopTraining(jobId).catch(() => { })
+  }
+
+  const handlePause = async () => {
+    if (jobId) await pauseTraining(jobId).catch(() => { })
+  }
+
+  const handleResume = async () => {
+    if (jobId) await resumeTraining(jobId).catch(() => { })
+  }
+
+  const handleLogLine = (line) => { allLinesRef.current.push(line) }
+
+  const handleTrainingComplete = () => {
+    const elapsed = startTimeRef.current ? Math.floor((Date.now() - startTimeRef.current) / 1000) : null
+    const parsed = parseTrainingMetrics(allLinesRef.current)
+    setTrainingMetrics({ ...parsed, elapsed })
+    setJobDone(true)
   }
 
   return (
@@ -242,14 +294,14 @@ export default function Training() {
 
               {/* ── Dataset ── */}
               <CollapsibleSection title="Dataset" defaultOpen>
-                <TextField label="HR train dir" value={form.train_dataset.dataroot_H}
+                <PathField label="HR train dir" mode="dirs" value={form.train_dataset.dataroot_H}
                   onChange={(v) => set('train_dataset.dataroot_H', v)} placeholder="trainsets/trainH" />
-                <TextField label="LR train dir" hint="leave blank to use bicubic downsampling"
+                <PathField label="LR train dir" mode="dirs" hint="leave blank to use bicubic downsampling"
                   value={form.train_dataset.dataroot_L || ''}
                   onChange={(v) => set('train_dataset.dataroot_L', v || null)} placeholder="trainsets/trainL (optional)" />
-                <TextField label="HR test dir" value={form.test_dataset.dataroot_H}
+                <PathField label="HR test dir" mode="dirs" value={form.test_dataset.dataroot_H}
                   onChange={(v) => set('test_dataset.dataroot_H', v)} />
-                <TextField label="LR test dir" value={form.test_dataset.dataroot_L || ''}
+                <PathField label="LR test dir" mode="dirs" value={form.test_dataset.dataroot_L || ''}
                   onChange={(v) => set('test_dataset.dataroot_L', v || null)} placeholder="(optional)" />
                 <div className="grid-3">
                   <NumberField label="HR patch size" value={form.train_dataset.H_size}
@@ -278,14 +330,17 @@ export default function Training() {
 
               {/* ── Pre-trained model ── */}
               <CollapsibleSection title="Pre-trained Model" defaultOpen={false}>
-                <TextField label="Pretrained netG path" hint="null = train from scratch"
+                <PathField label="Pretrained netG path" mode="files" extensions=".pth,.pt"
+                  hint="null = train from scratch"
                   value={form.pretrained_netG || ''}
                   onChange={(v) => set('pretrained_netG', v || null)} placeholder="model_zoo/..." />
                 {mode === 'gan' && (
                   <>
-                    <TextField label="Pretrained netD path" value={form.pretrained_netD || ''}
+                    <PathField label="Pretrained netD path" mode="files" extensions=".pth,.pt"
+                      value={form.pretrained_netD || ''}
                       onChange={(v) => set('pretrained_netD', v || null)} placeholder="(optional)" />
-                    <TextField label="Pretrained netE path" value={form.pretrained_netE_gan || ''}
+                    <PathField label="Pretrained netE path" mode="files" extensions=".pth,.pt"
+                      value={form.pretrained_netE_gan || ''}
                       onChange={(v) => set('pretrained_netE_gan', v || null)} placeholder="(optional)" />
                   </>
                 )}
@@ -392,7 +447,59 @@ export default function Training() {
               )}
             </div>
 
-            {jobId && <LogConsole domain="training" jobId={jobId} onStop={handleStop} />}
+            {jobId && (
+              <LogConsole
+                domain="training"
+                jobId={jobId}
+                onStop={handleStop}
+                onPause={handlePause}
+                onResume={handleResume}
+                onLine={handleLogLine}
+                onComplete={handleTrainingComplete}
+              />
+            )}
+            {jobDone && (
+              <div className="card" style={{ marginTop: 16 }}>
+                <div className="card-title">Training Summary</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 8 }}>
+                  {trainingMetrics?.finalIter != null && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '8px 0', borderBottom: '1px solid var(--line-2)' }}>
+                      <span style={{ color: 'var(--ink-2)' }}>Final iteration</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{trainingMetrics.finalIter.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {trainingMetrics?.psnr != null && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '8px 0', borderBottom: '1px solid var(--line-2)' }}>
+                      <span style={{ color: 'var(--ink-2)' }}>Best PSNR (last checkpoint)</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--ok)' }}>{trainingMetrics.psnr.toFixed(2)} dB</span>
+                    </div>
+                  )}
+                  {trainingMetrics?.ssim != null && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '8px 0', borderBottom: '1px solid var(--line-2)' }}>
+                      <span style={{ color: 'var(--ink-2)' }}>Best SSIM (last checkpoint)</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--ok)' }}>{trainingMetrics.ssim.toFixed(4)}</span>
+                    </div>
+                  )}
+                  {trainingMetrics?.loss != null && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '8px 0', borderBottom: '1px solid var(--line-2)' }}>
+                      <span style={{ color: 'var(--ink-2)' }}>Final G_loss</span>
+                      <span style={{ fontFamily: 'monospace', color: 'var(--ink-2)' }}>{trainingMetrics.loss.toFixed(4)}</span>
+                    </div>
+                  )}
+                  {trainingMetrics?.elapsed != null && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '8px 0' }}>
+                      <span style={{ color: 'var(--ink-2)' }}>Total time</span>
+                      <span style={{ fontFamily: 'monospace', color: 'var(--ink-2)' }}>{formatTrainingElapsed(trainingMetrics.elapsed)}</span>
+                    </div>
+                  )}
+                  {trainingMetrics?.psnr == null && trainingMetrics?.ssim == null && (
+                    <div style={{ fontSize: 12, color: 'var(--ink-3)', paddingTop: 6 }}>
+                      No PSNR / SSIM found in log — check the log output for test results.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

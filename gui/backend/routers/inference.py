@@ -369,4 +369,82 @@ def get_image_info(path: str = Query(..., description="Absolute or project-relat
     raise HTTPException(status_code=400, detail="Could not read image metadata.")
 
 
+@router.get("/image-compare")
+def compare_images(hr: str = Query(...), lr: str = Query(...)):
+    """
+    Compute PSNR between an HR and LR image pair.
+    Both are resampled to at most 1024×1024 for speed.
+    LR is upsampled to HR spatial size before comparison.
+    """
+    import numpy as np
+
+    def load_capped(path_str, max_dim=1024):
+        p = Path(path_str)
+        if not p.is_absolute():
+            p = PROJECT_ROOT / p
+        if not p.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {path_str}")
+        try:
+            import rasterio
+            from rasterio.enums import Resampling
+            with rasterio.open(str(p)) as src:
+                scale = min(1.0, max_dim / max(src.width, src.height))
+                out_w = max(1, int(src.width * scale))
+                out_h = max(1, int(src.height * scale))
+                data = src.read(
+                    out_shape=(src.count, out_h, out_w),
+                    resampling=Resampling.bilinear,
+                ).astype(np.float32)
+                return data, src.count, src.width, src.height
+        except Exception:
+            pass
+        try:
+            import cv2
+            img = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
+            if img is not None:
+                h, w = img.shape[:2]
+                scale = min(1.0, max_dim / max(w, h))
+                if scale < 1.0:
+                    img = cv2.resize(img, (int(w * scale), int(h * scale)),
+                                     interpolation=cv2.INTER_LINEAR)
+                arr = (img[np.newaxis] if img.ndim == 2
+                       else np.transpose(img, (2, 0, 1))).astype(np.float32)
+                return arr, arr.shape[0], w, h
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail=f"Could not read: {path_str}")
+
+    hr_arr, hr_bands, hr_w, hr_h = load_capped(hr)
+    lr_arr, lr_bands, lr_w, lr_h = load_capped(lr)
+
+    n = min(hr_arr.shape[0], lr_arr.shape[0])
+    hr_c = hr_arr[:n]
+    lr_c = lr_arr[:n]
+
+    # Upsample LR to HR spatial size for comparison
+    if hr_c.shape[1:] != lr_c.shape[1:]:
+        try:
+            import cv2
+            lr_c = np.stack([
+                cv2.resize(lr_c[i], (hr_c.shape[2], hr_c.shape[1]),
+                           interpolation=cv2.INTER_LINEAR)
+                for i in range(n)
+            ])
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Resize failed: {exc}")
+
+    def norm01(a):
+        lo, hi = float(a.min()), float(a.max())
+        return (a - lo) / (hi - lo) if hi > lo else np.zeros_like(a)
+
+    mse = float(np.mean((norm01(hr_c) - norm01(lr_c)) ** 2))
+    psnr = round(float(10 * np.log10(1.0 / mse)) if mse > 0 else 100.0, 2)
+
+    return {
+        "psnr": psnr,
+        "bands_compared": n,
+        "hr_bands": hr_bands, "hr_width": hr_w, "hr_height": hr_h,
+        "lr_bands": lr_bands, "lr_width": lr_w, "lr_height": lr_h,
+    }
+
 

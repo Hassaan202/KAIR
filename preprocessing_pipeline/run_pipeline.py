@@ -375,8 +375,8 @@ def main():
     # ---- Mode-specific setup ----
     if pipeline_mode == "hr_lr_pair":
         # HR/LR pair mode: discover LR images and match by filename
-        input_lr_dir = cfg.get("input_lr_dir", None)
-        if input_lr_dir is None:
+        input_lr_dir = cfg.get("input_lr_dir") or None
+        if not input_lr_dir:
             print(f"[ERROR] hr_lr_pair mode requires 'input_lr_dir' to be set in config.")
             sys.exit(1)
 
