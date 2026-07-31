@@ -50,6 +50,9 @@ m.CONFIG = {{
     "tile_overlap": {req.tile_overlap},
     "overwrite_sr": {req.overwrite_sr},
     "log_dir": r'{req.log_dir}',
+    "visual_report_enabled": {req.visual_report_enabled},
+    "visual_report_samples": {req.visual_report_samples},
+    "visual_report_seed": {req.visual_report_seed},
 }}
 m.MODEL_CONFIG = {{
     "upscale": {mc.upscale},
@@ -132,6 +135,11 @@ def _build_raw_config(
             "percentile_n_sample_windows": coreg.percentile_n_sample_windows,
             "coreg_preview_decim_dim":     coreg.coreg_preview_decim_dim,
         })
+        cfg.update({
+            "visual_report_enabled": req.visual_report_enabled,
+            "visual_report_samples": req.visual_report_samples,
+            "visual_report_seed":    req.visual_report_seed,
+        })
     else:  # lr_only
         cfg["lr_path"]  = req.lr_path
         cfg["lr_bands"] = req.lr_bands
@@ -206,7 +214,7 @@ async def start_inference(req: StartInferenceRequest):
     """Launch the patch-based inference subprocess."""
     wrapper = _write_inference_script(req)
     cmd = [sys.executable, str(wrapper)]
-    job_id = job_manager.create_job(cmd=cmd, cwd=str(PROJECT_ROOT))
+    job_id = job_manager.create_job(cmd=cmd, cwd=str(PROJECT_ROOT), output_dir=req.sr_dir)
     asyncio.create_task(job_manager.launch_job(job_id))
     return JobResponse(job_id=job_id, status="pending")
 
@@ -278,6 +286,34 @@ async def start_lr_only_inference(req: LROnlyInferenceRequest):
     )
     asyncio.create_task(job_manager.launch_job(job_id))
     return JobResponse(job_id=job_id, status="pending")
+
+
+@router.get("/preview/{job_id}/{filename}")
+def get_inference_preview_image(job_id: str, filename: str):
+    """
+    Serve a "5-layer" visual-assessment preview (grid/FFT/error/residual JPEG)
+    written by main_test_swinir_config.py or raw_inference.py to
+    <output_dir>/_previews/. Mirrors preprocessing's preview endpoint;
+    filename is restricted to a bare name (no path separators/traversal) and
+    the resolved path must stay inside that job's _previews directory.
+    """
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    output_dir = job.output_dir or (job.meta or {}).get("output_dir")
+    if not output_dir:
+        raise HTTPException(status_code=404, detail="Job has no output_dir recorded.")
+
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    base = (PROJECT_ROOT / output_dir / "_previews").resolve()
+    candidate = (base / filename).resolve()
+    if not candidate.is_relative_to(base) or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Preview not found")
+
+    return FileResponse(candidate, media_type="image/jpeg")
 
 
 _RESULT_FILE_RE = re.compile(r'^(lr|sr|hr)_(display|band_[1-9]\d*)\.png$')

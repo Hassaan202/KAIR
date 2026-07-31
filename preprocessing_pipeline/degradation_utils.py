@@ -31,6 +31,23 @@ from scipy.linalg import orth
 # Image I/O helpers  (inlined from utils/utils_image.py)
 # ===========================================================================
 
+def _cv2_imread_unicode(path, flags):
+    """cv2.imread wrapper that handles non-ASCII paths on Windows.
+
+    cv2.imread silently returns None for paths containing non-ASCII characters
+    on Windows (cp1252 locale). Fall back to reading raw bytes via numpy so
+    that paths with µ, accented letters, CJK characters, etc. work correctly.
+    """
+    img = cv2.imread(path, flags)
+    if img is None:
+        try:
+            raw = np.fromfile(path, dtype=np.uint8)
+            img = cv2.imdecode(raw, flags)
+        except Exception:
+            pass
+    return img
+
+
 def imread_uint(path, n_channels=3):
     """Read an image from disk as a uint8 HxWxC numpy array (RGB channel order).
 
@@ -45,12 +62,21 @@ def imread_uint(path, n_channels=3):
     -------
     np.ndarray
         uint8 array, shape HxWx``n_channels``.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the file cannot be opened (e.g. path does not exist or is unreadable).
     """
     if n_channels == 1:
-        img = cv2.imread(path, 0)
+        img = _cv2_imread_unicode(path, 0)
+        if img is None:
+            raise FileNotFoundError(f"Cannot read image: {path}")
         img = np.expand_dims(img, axis=2)
     else:
-        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+        img = _cv2_imread_unicode(path, cv2.IMREAD_UNCHANGED)
+        if img is None:
+            raise FileNotFoundError(f"Cannot read image: {path}")
         if img.ndim == 2:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
         else:
@@ -70,8 +96,14 @@ def imsave(img, img_path):
     """
     img = np.squeeze(img)
     if img.ndim == 3:
-        img = img[:, :, [2, 1, 0]]   # RGB → BGR for cv2
-    cv2.imwrite(img_path, img)
+        img = img[:, :, [2, 1, 0]]   # RGB -> BGR for cv2
+    # cv2.imwrite silently fails on non-ASCII paths on Windows; use imencode+tofile
+    ext = os.path.splitext(img_path)[1]
+    ok, buf = cv2.imencode(ext, img)
+    if ok:
+        buf.tofile(img_path)
+    else:
+        raise RuntimeError(f"cv2.imencode failed for {img_path}")
 
 
 def uint2single(img):

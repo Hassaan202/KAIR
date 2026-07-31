@@ -107,7 +107,7 @@ class Pipeline3Request(BaseModel):
     lr_image_path: str = ""
     output_dir: str
     supported_extensions: List[str] = Field(
-        default_factory=lambda: [".tif", ".tiff", ".jp2"]
+        default_factory=lambda: [".tif", ".tiff", ".jp2", ".png", ".jpg", ".jpeg", ".bmp"]
     )
     hr_rgb_bands: List[int] = Field(default_factory=lambda: [1, 2, 3])
     lr_rgb_bands: List[int] = Field(default_factory=lambda: [3, 2, 1])
@@ -135,6 +135,8 @@ class Pipeline3Request(BaseModel):
     real_esrgan: RealEsrganConfig = Field(default_factory=RealEsrganConfig)
     bsrgan_plus: BsrganPlusConfig = Field(default_factory=BsrganPlusConfig)
     satellite: SatelliteConfig = Field(default_factory=SatelliteConfig)
+    # Class/subfolder filter — empty list means include all subfolders
+    class_filter: List[str] = Field(default_factory=list)
     # Train/test split
     train_test_split: bool = False
     train_ratio: float = 0.8

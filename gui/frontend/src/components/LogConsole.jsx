@@ -75,9 +75,11 @@ function formatElapsed(s) {
   return `${sec}s`
 }
 
-export default function LogConsole({ domain, jobId, onStop, onPause, onResume, onComplete, onLine, onPreviewsChange }) {
+export default function LogConsole({ domain, jobId, onStop, onPause, onResume, onComplete, onLine, onPreviewsChange, previewStages }) {
+  const stagesForStrip = previewStages || PREVIEW_STAGES
   const [lines, setLines] = useState([])
   const [status, setStatus] = useState('pending')
+  const [copied, setCopied] = useState(false)
   const [previews, setPreviews] = useState({})
   const [lightbox, setLightbox] = useState(null)
   const logRef = useRef(null)
@@ -123,11 +125,11 @@ export default function LogConsole({ domain, jobId, onStop, onPause, onResume, o
       (line) => {
         setLines((prev) => [...prev, line])
         if (onLineRef.current) onLineRef.current(line)
-        if (domain === 'preprocessing') {
+        if (domain === 'preprocessing' || domain === 'inference') {
           const match = line.match(PREVIEW_MARKER_RE)
           if (match) {
             const [, filename, stage, scene] = match
-            const url = `/api/preprocessing/preview/${jobId}/${encodeURIComponent(filename)}`
+            const url = `/api/${domain}/preview/${jobId}/${encodeURIComponent(filename)}`
             const next = { ...previewsRef.current, [stage]: { url, scene } }
             previewsRef.current = next
             setPreviews(next)
@@ -155,7 +157,7 @@ export default function LogConsole({ domain, jobId, onStop, onPause, onResume, o
 
   const isLive = status === 'running' || status === 'pending'
   const isPaused = status === 'paused'
-  const visibleStages = PREVIEW_STAGES.filter((s) => previews[s.key])
+  const visibleStages = stagesForStrip.filter((s) => previews[s.key])
 
   return (
     <div style={{ marginTop: 20 }}>
@@ -186,7 +188,20 @@ export default function LogConsole({ domain, jobId, onStop, onPause, onResume, o
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', marginRight: 6 }}>{lines.length} lines</span>
+          <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{lines.length} lines</span>
+          <button
+            className="btn"
+            style={{ padding: '4px 10px', fontSize: 11 }}
+            disabled={lines.length === 0}
+            onClick={() => {
+              navigator.clipboard.writeText(lines.join('\n')).then(() => {
+                setCopied(true)
+                setTimeout(() => setCopied(false), 2000)
+              })
+            }}
+          >
+            {copied ? '✓ Copied!' : '⎘ Copy log'}
+          </button>
           {(isLive || isPaused) && (onPause || onResume) && (
             <button
               className="btn"

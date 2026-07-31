@@ -21,6 +21,7 @@ import numpy as np
 import torch
 
 from utils import utils_image as util
+from utils import utils_visual_report as vrep
 
 
 CONFIG = {
@@ -223,6 +224,20 @@ def main():
     if not common_names:
         raise RuntimeError(f"No matching LR/HR filenames were found in {lr_dir} and {hr_dir}.")
 
+    # Optional "5-layer" visual assessment (visual grids, FFT spectrum, error/residual
+    # maps) for a random sample of patches. Off by default -- CONFIG dicts that predate
+    # this option (every existing caller) behave exactly as before.
+    visual_report_enabled = bool(CONFIG.get("visual_report_enabled", False))
+    visual_report_samples = int(CONFIG.get("visual_report_samples", 10))
+    visual_report_seed = int(CONFIG.get("visual_report_seed", 23))
+    preview_dir = sr_dir / "_previews"
+    sampled_names = (
+        set(vrep.sample_names(common_names, visual_report_samples, visual_report_seed))
+        if visual_report_enabled else set()
+    )
+    if visual_report_enabled:
+        logger.info(f"Visual assessment enabled: {len(sampled_names)} sample patch(es), seed={visual_report_seed}")
+
     totals = defaultdict(float)
     processed = 0
 
@@ -259,6 +274,9 @@ def main():
         sr_metrics = calculate_metrics(sr_image, hr_image, border=border)
         lr_metrics = calculate_metrics(bicubic_image, hr_image, border=border)
         deltas = {k: sr_metrics[k] - lr_metrics[k] for k in METRIC_NAMES}
+
+        if name in sampled_names:
+            vrep.generate_sample_report(bicubic_image, sr_image, hr_image, preview_dir, name)
 
         for key in METRIC_NAMES:
             totals[key] += float(sr_metrics[key])

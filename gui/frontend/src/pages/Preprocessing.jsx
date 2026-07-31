@@ -14,7 +14,9 @@ import {
 
 const PREVIEW_STAGES = [
   { key: 'load_hr',     label: 'HR Loaded' },
+  { key: 'bands_hr',    label: 'HR Bands' },
   { key: 'load_lr',     label: 'LR Loaded' },
+  { key: 'bands_lr',    label: 'LR Bands' },
   { key: 'coreg_a',     label: 'Coreg — ORB' },
   { key: 'coreg_b',     label: 'Coreg — Phase' },
   { key: 'radiometric', label: 'Radiometric' },
@@ -234,6 +236,7 @@ function MetaPill({ meta }) {
 // ── Pipeline A defaults ────────────────────────────────────────────────────────
 const DEFAULT_P3 = {
   hr_image_path: '', lr_image_path: '', output_dir: 'output_patches',
+  supported_extensions: ['.tif', '.tiff', '.jp2', '.png', '.jpg', '.jpeg', '.bmp'],
   hr_rgb_bands: [1, 2, 3], lr_rgb_bands: [3, 2, 1],
   scale_factor: 2, hr_patch_size: 256, stride: 256,
   nodata_value: 0, saturated_value: 32767, clip_percentiles: [2.0, 98.0],
@@ -243,7 +246,34 @@ const DEFAULT_P3 = {
   coreg_a: { enabled: true, max_features: 8000, match_ratio: 0.75, ransac_thresh: 4.0, downsample: 0.25 },
   coreg_b: { enabled: true, downsample: 0.25, upsample_factor: 100 },
   coreg_c: { enabled: true, max_iter: 100, eps: 1e-5, warp_mode: 'translation', discard_on_fail: true },
+  class_filter: [],
   train_test_split: false, train_ratio: 0.8, test_output_dir: '',
+  // Unpaired-HR degradation (used when lr_image_path is left empty)
+  degradation_enabled: true, degradation_type: 'satellite',
+  bsrgan: { jpeg_prob: 0.9, scale2_prob: 0.25, isp_prob: 0.25, noise_level1: 2, noise_level2: 25 },
+  real_esrgan: {
+    blur_prob_1: 1.0, resize_prob_1: 1.0, gaussian_noise_prob_1: 0.5,
+    poisson_noise_prob_1: 0.1, speckle_noise_prob_1: 0.1, jpeg_prob_1: 0.9,
+    noise_level1_s1: 2, noise_level2_s1: 25, blur_prob_2: 0.8, resize_prob_2: 1.0,
+    gaussian_noise_prob_2: 0.5, poisson_noise_prob_2: 0.1, speckle_noise_prob_2: 0.1,
+    jpeg_prob_2: 0.8, noise_level1_s2: 2, noise_level2_s2: 15,
+    final_jpeg_prob: 0.5, resize_back_prob: 0.5, isp_prob: 0.1,
+  },
+  bsrgan_plus: {
+    shuffle_prob: 0.5, use_sharp: false, sharpening_weight: 0.5,
+    sharpening_radius: 50, sharpening_threshold: 10, poisson_prob: 0.1,
+    speckle_prob: 0.1, isp_prob: 0.1, noise_level1: 2, noise_level2: 25,
+  },
+  satellite: {
+    blur_prob_1: 1.0, blur_type_1: 'mtf', resize_prob_1: 0.75,
+    poisson_prob_1: 0.75, read_noise_prob_1: 0.55, haze_prob_1: 0.45, jpeg_prob_1: 0.12,
+    blur_prob_2: 0.92, blur_type_2: 'mtf', resize_prob_2: 0.70,
+    poisson_prob_2: 0.60, read_noise_prob_2: 0.45, haze_prob_2: 0.35, jpeg_prob_2: 0.08,
+    final_jpeg_prob: 0.10, resize_back_prob: 0.35, isp_prob: 0.08,
+    noise_level1: 0.8, noise_level2: 5.0,
+    mtf_sigma_optics_range: [0.8, 2.8], mtf_detector_width_range: [0.7, 1.8],
+    mtf_atm_sigma_range: [0.4, 1.8],
+  },
 }
 
 // ── Pipeline B defaults ────────────────────────────────────────────────────────
@@ -306,11 +336,41 @@ function Pipeline3Form({ onJobStart }) {
   const [hrMeta, setHrMeta] = useState(null)
   const [lrMeta, setLrMeta] = useState(null)
   const [pairPsnr, setPairPsnr] = useState(null)
+  const [hrSubdirs, setHrSubdirs] = useState([])
+  const [classSearch, setClassSearch] = useState('')
   const hrTimerRef = useRef(null)
   const lrTimerRef = useRef(null)
   const psnrTimerRef = useRef(null)
+  const subdirTimerRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   const set = (path, value) => setForm((prev) => deepSet(prev, path, value))
+
+  const handleLoadDegradationFile = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const loaded = JSON.parse(ev.target.result)
+        setForm(prev => ({ ...prev, ...loaded }))
+      } catch {
+        alert('Invalid JSON file.')
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  const handleSaveDegradationFile = () => {
+    const blob = new Blob([JSON.stringify(form, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'pipeline_a_config.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const applyBandPreset = (key, customN = customBandCount) => {
     const preset = BAND_PRESETS.find(p => p.key === key)
@@ -348,6 +408,22 @@ function Pipeline3Form({ onJobStart }) {
     return () => clearTimeout(psnrTimerRef.current)
   }, [form.hr_image_path, form.lr_image_path])
 
+  // Detect class subfolders when the HR path changes
+  useEffect(() => {
+    clearTimeout(subdirTimerRef.current)
+    const p = form.hr_image_path.trim()
+    if (!p) { setHrSubdirs([]); set('class_filter', []); return }
+    subdirTimerRef.current = setTimeout(() => {
+      listDirectory(p, 'dirs').then(r => {
+        const dirs = (r.data.entries || []).filter(e => e.type === 'dir').map(e => e.name)
+        setHrSubdirs(dirs)
+        // If subdirs are newly detected, default to all selected (empty = all)
+        if (dirs.length === 0) set('class_filter', [])
+      }).catch(() => setHrSubdirs([]))
+    }, 700)
+    return () => clearTimeout(subdirTimerRef.current)
+  }, [form.hr_image_path])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
@@ -361,6 +437,8 @@ function Pipeline3Form({ onJobStart }) {
       setLoading(false)
     }
   }
+
+  const deg = form.degradation_type
 
   return (
     <form onSubmit={handleSubmit}>
@@ -376,6 +454,69 @@ function Pipeline3Form({ onJobStart }) {
           value={form.lr_image_path} onChange={(v) => set('lr_image_path', v)}
           placeholder="path/to/LR.JP2" />
         <MetaPill meta={lrMeta} />
+
+        {/* Class subfolder selector — shown when the HR directory has subdirectories */}
+        {hrSubdirs.length > 0 && (() => {
+          // form.class_filter stores INCLUDED class names. Empty array = all classes.
+          const isSelected = (name) => form.class_filter.length === 0 || form.class_filter.includes(name)
+          const toggle = (name) => {
+            if (form.class_filter.length === 0) {
+              // All selected → uncheck one → include all except this
+              set('class_filter', hrSubdirs.filter(n => n !== name))
+            } else if (form.class_filter.includes(name)) {
+              // Was included → remove
+              const next = form.class_filter.filter(n => n !== name)
+              set('class_filter', next)
+            } else {
+              // Was excluded → add back
+              const next = [...form.class_filter, name]
+              // If now all classes are included, normalize to [] (= all)
+              set('class_filter', next.length === hrSubdirs.length ? [] : next)
+            }
+          }
+          return (
+            <div className="form-group" style={{ marginTop: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <label style={{ marginBottom: 0 }}>
+                  Class filter
+                  <span className="hint" style={{ marginLeft: 6 }}>
+                    {form.class_filter.length === 0
+                      ? `all ${hrSubdirs.length} classes`
+                      : `${form.class_filter.length} / ${hrSubdirs.length} selected`}
+                  </span>
+                </label>
+                <button type="button" className="btn" style={{ padding: '3px 9px', fontSize: 11 }}
+                  onClick={() => set('class_filter', [])}>Select all</button>
+              </div>
+              <input
+                className="text-input"
+                placeholder="Search classes…"
+                value={classSearch}
+                onChange={e => setClassSearch(e.target.value)}
+                style={{ marginBottom: 6, fontSize: 12 }}
+              />
+              <div style={{
+                maxHeight: 180, overflowY: 'auto', border: '1px solid var(--line-2)',
+                borderRadius: 'var(--radius-sm)', padding: '6px 8px',
+                display: 'flex', flexDirection: 'column', gap: 3,
+              }}>
+                {hrSubdirs
+                  .filter(name => !classSearch || name.toLowerCase().includes(classSearch.toLowerCase()))
+                  .map(name => (
+                    <label key={name} style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      fontSize: 12, cursor: 'pointer', userSelect: 'none',
+                      color: isSelected(name) ? 'var(--ink)' : 'var(--ink-3)',
+                    }}>
+                      <input type="checkbox" checked={isSelected(name)} onChange={() => toggle(name)} />
+                      {name}
+                    </label>
+                  ))}
+              </div>
+            </div>
+          )
+        })()}
+
         <PathField label="Output directory" mode="dirs"
           value={form.output_dir} onChange={(v) => set('output_dir', v)}
           placeholder="output_patches" />
@@ -454,6 +595,101 @@ function Pipeline3Form({ onJobStart }) {
         </div>
       </CollapsibleSection>
 
+      {/* ── Degradation (HR-only mode: no LR path given → synthesize LR from HR patches) ── */}
+      {!form.lr_image_path.trim() && (
+        <CollapsibleSection title="Degradation" defaultOpen>
+          <p style={{ color: 'var(--ink-3)', fontSize: 12, marginBottom: 14 }}>
+            No LR image path set — each HR patch will be degraded to synthesize its matching LR patch.
+          </p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            style={{ display: 'none' }}
+            onChange={handleLoadDegradationFile}
+          />
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+            <button type="button" className="btn" style={{ fontSize: 12, padding: '5px 12px' }}
+              onClick={() => fileInputRef.current?.click()}>
+              ↑ Load config
+            </button>
+            <button type="button" className="btn" style={{ fontSize: 12, padding: '5px 12px' }}
+              onClick={handleSaveDegradationFile}>
+              ↓ Save full config
+            </button>
+          </div>
+          <SelectField label="Degradation type" value={form.degradation_type}
+            onChange={(v) => set('degradation_type', v)}
+            options={['bsrgan', 'real_esrgan', 'bsrgan_plus', 'satellite']} />
+
+          {deg === 'bsrgan' && (
+            <div className="grid-2">
+              <NumberField label="JPEG prob" value={form.bsrgan.jpeg_prob}
+                onChange={(v) => set('bsrgan.jpeg_prob', v)} min={0} max={1} step={0.05}
+                tooltip="Probability of applying JPEG compression artifact simulation per degradation pass." />
+              <NumberField label="ISP prob" value={form.bsrgan.isp_prob}
+                onChange={(v) => set('bsrgan.isp_prob', v)} min={0} max={1} step={0.05}
+                tooltip="Probability of applying camera ISP pipeline simulation (tone mapping, colour space conversion)." />
+              <NumberField label="Noise level 1" value={form.bsrgan.noise_level1}
+                onChange={(v) => set('bsrgan.noise_level1', v)} min={0} step={1} />
+              <NumberField label="Noise level 2" value={form.bsrgan.noise_level2}
+                onChange={(v) => set('bsrgan.noise_level2', v)} min={0} step={5} />
+            </div>
+          )}
+
+          {deg === 'satellite' && (
+            <>
+              <p style={{ color: 'var(--ink-3)', fontSize: 12, marginBottom: 16 }}>
+                Satellite-optimized: MTF/PSF blur, shot noise, read noise, atmospheric haze.
+              </p>
+              <div className="grid-2">
+                <SelectField label="Stage 1 blur type" value={form.satellite.blur_type_1}
+                  onChange={(v) => set('satellite.blur_type_1', v)}
+                  options={['mtf', 'anisotropic']} />
+                <NumberField label="Stage 1 blur prob" value={form.satellite.blur_prob_1}
+                  onChange={(v) => set('satellite.blur_prob_1', v)} min={0} max={1} step={0.05}
+                  tooltip="Probability of applying MTF/PSF convolution blur in stage 1 of the two-stage satellite degradation pipeline." />
+              </div>
+              <div className="grid-2">
+                <NumberField label="Poisson prob (stage 1)" value={form.satellite.poisson_prob_1}
+                  onChange={(v) => set('satellite.poisson_prob_1', v)} min={0} max={1} step={0.05} />
+                <NumberField label="Haze prob (stage 1)" value={form.satellite.haze_prob_1}
+                  onChange={(v) => set('satellite.haze_prob_1', v)} min={0} max={1} step={0.05} />
+              </div>
+              <div className="grid-2">
+                <NumberField label="Noise level min" value={form.satellite.noise_level1}
+                  onChange={(v) => set('satellite.noise_level1', v)} min={0} step={0.1} />
+                <NumberField label="Noise level max" value={form.satellite.noise_level2}
+                  onChange={(v) => set('satellite.noise_level2', v)} min={0} step={0.5} />
+              </div>
+              <ArrayEditor label="MTF optics sigma range [min, max]"
+                value={form.satellite.mtf_sigma_optics_range}
+                onChange={(v) => set('satellite.mtf_sigma_optics_range', v)}
+                integer={false}
+                tooltip="Gaussian sigma range [min, max] (px) for optical lens MTF blur. Higher values simulate blurrier optics / larger PSF." />
+            </>
+          )}
+
+          {deg === 'bsrgan_plus' && (
+            <div className="grid-2">
+              <NumberField label="Shuffle prob" value={form.bsrgan_plus.shuffle_prob}
+                onChange={(v) => set('bsrgan_plus.shuffle_prob', v)} min={0} max={1} step={0.05} />
+              <BoolToggle label="Use sharp" value={form.bsrgan_plus.use_sharp}
+                onChange={(v) => set('bsrgan_plus.use_sharp', v)} />
+            </div>
+          )}
+
+          {deg === 'real_esrgan' && (
+            <div className="grid-2">
+              <NumberField label="Blur prob (stage 1)" value={form.real_esrgan.blur_prob_1}
+                onChange={(v) => set('real_esrgan.blur_prob_1', v)} min={0} max={1} step={0.1} />
+              <NumberField label="JPEG prob (stage 1)" value={form.real_esrgan.jpeg_prob_1}
+                onChange={(v) => set('real_esrgan.jpeg_prob_1', v)} min={0} max={1} step={0.05} />
+            </div>
+          )}
+        </CollapsibleSection>
+      )}
+
       {/* ── Quality filters ── */}
       <CollapsibleSection title="Quality Filters" defaultOpen={false}>
         <div className="grid-2">
@@ -488,7 +724,7 @@ function Pipeline3Form({ onJobStart }) {
         {form.coreg_a.enabled && (
           <div className="grid-2">
             <NumberField label="Max features" value={form.coreg_a.max_features}
-              onChange={(v) => set('coreg_a.max_features', v)} min={100} step={500}
+              onChange={(v) => set('coreg_a.max_features', v)} min={0} step={500}
               tooltip="Max ORB keypoints to detect. Higher = better coverage on complex imagery, at the cost of speed." />
             <NumberField label="RANSAC thresh" value={form.coreg_a.ransac_thresh}
               onChange={(v) => set('coreg_a.ransac_thresh', v)} min={0.5} step={0.5}
@@ -676,7 +912,9 @@ function RunPipelineForm({ onJobStart }) {
       </CollapsibleSection>
 
       <CollapsibleSection title="Paths" defaultOpen>
-        <PathField label="Input HR dir" mode="dirs" value={form.input_hr_dir}
+        <PathField label="Input HR path" hint="file, flat dir, or dir with class subfolders" mode="files"
+          extensions=".png,.jpg,.jpeg,.tif,.tiff,.bmp,.jp2"
+          value={form.input_hr_dir}
           onChange={(v) => set('input_hr_dir', v)} />
         {classStructure && classStructure.is_classed && (
           <div style={{
@@ -696,13 +934,19 @@ function RunPipelineForm({ onJobStart }) {
             </div>
           </div>
         )}
-        {classStructure && !classStructure.is_classed && form.input_hr_dir.trim() && (
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2, marginBottom: 4 }}>
-            Flat directory — all images processed together
-          </div>
-        )}
+        {classStructure && !classStructure.is_classed && form.input_hr_dir.trim() && (() => {
+          const p = form.input_hr_dir.trim()
+          const isFile = /\.[a-zA-Z0-9]+$/.test(p.split(/[/\\]/).pop() || '')
+          return (
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2, marginBottom: 4 }}>
+              {isFile ? 'Single file — processed as one image' : 'Flat directory — all images processed together'}
+            </div>
+          )
+        })()}
         {form.pipeline_mode === 'hr_lr_pair' && (
-          <PathField label="Input LR dir" mode="dirs" value={form.input_lr_dir}
+          <PathField label="Input LR path" hint="file, flat dir, or dir with class subfolders" mode="files"
+            extensions=".png,.jpg,.jpeg,.tif,.tiff,.bmp,.jp2"
+            value={form.input_lr_dir}
             onChange={(v) => set('input_lr_dir', v)} />
         )}
         <div className="grid-2">
@@ -856,6 +1100,7 @@ export default function Preprocessing() {
   const setJobId = (id) => setCtxJobId('preprocessing', id)
   const [previewMap, setPreviewMap] = useState({})
   const [classResults, setClassResults] = useState([])
+  const logPanelRef = useRef(null)
 
   const handleStop = async () => {
     if (jobId) await stopPreprocessing(jobId).catch(() => { })
@@ -873,6 +1118,9 @@ export default function Preprocessing() {
     setJobId(jid)
     setPreviewMap({})
     setClassResults([])
+    setTimeout(() => {
+      logPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 50)
   }
 
   const handleLogLine = (line) => {
@@ -966,7 +1214,7 @@ export default function Preprocessing() {
                 </div>
               )}
             </div>
-            <div className="col">
+            <div className="col" ref={logPanelRef}>
               {jobId && (
                 <LogConsole
                   domain="preprocessing"

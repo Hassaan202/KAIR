@@ -31,6 +31,11 @@ class StartInferenceRequest(BaseModel):
     overwrite_sr: bool = True
     log_dir: str
     model_network_config: ModelConfig = Field(default_factory=ModelConfig, alias="model_config")
+    # "5-layer" visual assessment (visual grids, FFT spectrum, error/residual maps)
+    # for a random sample of patches. Defaults preserve old behaviour (disabled).
+    visual_report_enabled: bool = False
+    visual_report_samples: int = 10
+    visual_report_seed: int = 23
 
 
 class JobResponse(BaseModel):
@@ -84,6 +89,10 @@ class RawPairedInferenceRequest(BaseModel):
     scale_factor: int = 2
     coreg: CoregConfig = Field(default_factory=CoregConfig)
     model_network_config: ModelConfig = Field(default_factory=ModelConfig)
+    # "5-layer" visual assessment -- paired mode only (needs HR ground truth).
+    visual_report_enabled: bool = False
+    visual_report_samples: int = 10
+    visual_report_seed: int = 23
 
 
 class LROnlyInferenceRequest(BaseModel):

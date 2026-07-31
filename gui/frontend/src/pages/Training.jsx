@@ -112,13 +112,17 @@ function formatTrainingElapsed(sec) {
 function parseTrainingMetrics(lines) {
   let psnr = null, ssim = null, loss = null, finalIter = null
   for (const line of lines) {
-    const iterM = line.match(/\b(\d+)\/\d+\b/) || line.match(/iter[:\s]+(\d+)/i)
-    if (iterM) finalIter = parseInt(iterM[1])
-    const psnrM = line.match(/psnr[:\s]+([0-9.]+)/i)
+    // <epoch:  1, iter:    1000, lr:1.000e-04>
+    const iterM = line.match(/<epoch:\s*\d+,\s*iter:\s*([\d,]+)/)
+    if (iterM) finalIter = parseInt(iterM[1].replace(/,/g, ''))
+    // Average PSNR: 33.60dB  (keep last occurrence = most recent checkpoint)
+    const psnrM = line.match(/Average PSNR:\s*([0-9.]+)/i)
     if (psnrM) psnr = parseFloat(psnrM[1])
-    const ssimM = line.match(/ssim[:\s]+([0-9.]+)/i)
+    // SSIM: 0.9265
+    const ssimM = line.match(/\bSSIM:\s*([0-9.]+)/i)
     if (ssimM) ssim = parseFloat(ssimM[1])
-    const lossM = line.match(/G_loss[:\s]+([0-9.]+)/i)
+    // G_loss: 1.234e-03  (scientific notation)
+    const lossM = line.match(/G_loss:\s*([0-9.e+\-]+)/i)
     if (lossM) loss = parseFloat(lossM[1])
   }
   return { psnr, ssim, loss, finalIter }
@@ -137,6 +141,7 @@ export default function Training() {
   const [bandPreset, setBandPreset] = useState('rgb')
   const [customBandCount, setCustomBandCount] = useState(3)
   const [trainingMetrics, setTrainingMetrics] = useState(null)
+  const [trainingInfo, setTrainingInfo] = useState(null)
   const [jobDone, setJobDone] = useState(false)
   const allLinesRef = useRef([])
   const startTimeRef = useRef(null)
@@ -177,6 +182,7 @@ export default function Training() {
     setLoading(true)
     setJobDone(false)
     setTrainingMetrics(null)
+    setTrainingInfo({ task: form.task, mode, scale: form.scale, n_channels: form.n_channels })
     allLinesRef.current = []
     startTimeRef.current = Date.now()
     try {
@@ -209,6 +215,8 @@ export default function Training() {
     const parsed = parseTrainingMetrics(allLinesRef.current)
     setTrainingMetrics({ ...parsed, elapsed })
     setJobDone(true)
+    // Refresh runs list so the completed run shows up immediately
+    listTrainingRuns().then((r) => setRuns(r.data)).catch(() => { })
   }
 
   return (
@@ -427,19 +435,65 @@ export default function Training() {
           {/* ─── Right: Recent runs + log ─────────────────── */}
           <div className="col">
             <div className="card">
-              <div className="card-title">Recent Training Runs</div>
+              <div className="card-title">Training Run History</div>
               {runs.length === 0 ? (
                 <p className="text-muted text-sm">No training runs found in superresolution/</p>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {runs.map((r) => (
                     <div key={r.task_name} className="ds-row" style={{ padding: '10px 14px' }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--ink)' }}>{r.task_name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
-                          {r.config_type} · iter {r.latest_iteration ?? '—'} ·{' '}
-                          {r.has_log ? 'log available' : 'no log'}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginBottom: 4 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{r.task_name}</span>
+                          <span style={{
+                            fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4,
+                            background: r.config_type === 'gan' ? 'rgba(99,102,241,0.12)' : 'var(--surface-2)',
+                            color: r.config_type === 'gan' ? 'var(--cobalt-deep)' : 'var(--ink-2)',
+                            border: '1px solid', borderColor: r.config_type === 'gan' ? 'rgba(99,102,241,0.3)' : 'var(--line-2)',
+                            textTransform: 'uppercase',
+                          }}>
+                            {r.config_type === 'plain' ? 'PSNR' : (r.config_type ?? 'unknown').toUpperCase()}
+                          </span>
+                          {r.scale != null && (
+                            <span style={{
+                              fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4,
+                              background: 'var(--surface-2)', color: 'var(--ink-2)',
+                              border: '1px solid var(--line-2)',
+                            }}>×{r.scale}</span>
+                          )}
+                          {r.n_channels != null && (
+                            <span style={{
+                              fontSize: 10, padding: '1px 6px', borderRadius: 4,
+                              background: 'var(--surface-2)', color: 'var(--ink-3)',
+                              border: '1px solid var(--line-2)',
+                            }}>{r.n_channels}ch</span>
+                          )}
                         </div>
+                        <div style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                          <span>{r.latest_iteration != null ? `iter ${r.latest_iteration.toLocaleString()}` : 'no checkpoint'}</span>
+                          {r.best_psnr != null && (
+                            <span style={{ color: 'var(--ok)', fontWeight: 600 }}>PSNR {r.best_psnr.toFixed(2)} dB</span>
+                          )}
+                          {r.best_ssim != null && (
+                            <span style={{ color: 'var(--ok)' }}>SSIM {r.best_ssim.toFixed(4)}</span>
+                          )}
+                        </div>
+                        {r.latest_model_path && (
+                          <div style={{
+                            fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)',
+                            marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }} title={r.latest_model_path}>
+                            {r.latest_model_path}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, marginLeft: 10 }}>
+                        {r.has_log && (
+                          <span style={{ fontSize: 10, color: 'var(--ok)', fontWeight: 600 }}>LOG</span>
+                        )}
+                        {!r.latest_model_path && (
+                          <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>no model</span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -461,7 +515,36 @@ export default function Training() {
             {jobDone && (
               <div className="card" style={{ marginTop: 16 }}>
                 <div className="card-title">Training Summary</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 8 }}>
+
+                {/* Task / type / scale header row */}
+                {trainingInfo && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, marginTop: 4 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{trainingInfo.task}</span>
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
+                      background: trainingInfo.mode === 'gan' ? 'rgba(99,102,241,0.12)' : 'var(--surface-2)',
+                      color: trainingInfo.mode === 'gan' ? 'var(--cobalt-deep)' : 'var(--ink-2)',
+                      border: '1px solid', borderColor: trainingInfo.mode === 'gan' ? 'rgba(99,102,241,0.3)' : 'var(--line-2)',
+                      textTransform: 'uppercase', alignSelf: 'center',
+                    }}>{trainingInfo.mode}</span>
+                    {trainingInfo.scale && (
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
+                        background: 'var(--surface-2)', color: 'var(--ink-2)',
+                        border: '1px solid var(--line-2)', alignSelf: 'center',
+                      }}>×{trainingInfo.scale}</span>
+                    )}
+                    {trainingInfo.n_channels && (
+                      <span style={{
+                        fontSize: 10, padding: '2px 7px', borderRadius: 4,
+                        background: 'var(--surface-2)', color: 'var(--ink-3)',
+                        border: '1px solid var(--line-2)', alignSelf: 'center',
+                      }}>{trainingInfo.n_channels}ch</span>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                   {trainingMetrics?.finalIter != null && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '8px 0', borderBottom: '1px solid var(--line-2)' }}>
                       <span style={{ color: 'var(--ink-2)' }}>Final iteration</span>
@@ -470,31 +553,39 @@ export default function Training() {
                   )}
                   {trainingMetrics?.psnr != null && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '8px 0', borderBottom: '1px solid var(--line-2)' }}>
-                      <span style={{ color: 'var(--ink-2)' }}>Best PSNR (last checkpoint)</span>
+                      <span style={{ color: 'var(--ink-2)' }}>PSNR (last checkpoint)</span>
                       <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--ok)' }}>{trainingMetrics.psnr.toFixed(2)} dB</span>
                     </div>
                   )}
                   {trainingMetrics?.ssim != null && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '8px 0', borderBottom: '1px solid var(--line-2)' }}>
-                      <span style={{ color: 'var(--ink-2)' }}>Best SSIM (last checkpoint)</span>
+                      <span style={{ color: 'var(--ink-2)' }}>SSIM (last checkpoint)</span>
                       <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--ok)' }}>{trainingMetrics.ssim.toFixed(4)}</span>
                     </div>
                   )}
                   {trainingMetrics?.loss != null && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '8px 0', borderBottom: '1px solid var(--line-2)' }}>
                       <span style={{ color: 'var(--ink-2)' }}>Final G_loss</span>
-                      <span style={{ fontFamily: 'monospace', color: 'var(--ink-2)' }}>{trainingMetrics.loss.toFixed(4)}</span>
+                      <span style={{ fontFamily: 'monospace', color: 'var(--ink-2)' }}>{trainingMetrics.loss.toExponential(3)}</span>
                     </div>
                   )}
                   {trainingMetrics?.elapsed != null && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '8px 0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '8px 0', borderBottom: '1px solid var(--line-2)' }}>
                       <span style={{ color: 'var(--ink-2)' }}>Total time</span>
                       <span style={{ fontFamily: 'monospace', color: 'var(--ink-2)' }}>{formatTrainingElapsed(trainingMetrics.elapsed)}</span>
                     </div>
                   )}
+                  {trainingInfo?.task && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '8px 0', gap: 12 }}>
+                      <span style={{ color: 'var(--ink-3)', flexShrink: 0 }}>Model saved to</span>
+                      <span style={{ fontFamily: 'monospace', color: 'var(--ink-3)', textAlign: 'right', wordBreak: 'break-all' }}>
+                        superresolution/{trainingInfo.task}/models/
+                      </span>
+                    </div>
+                  )}
                   {trainingMetrics?.psnr == null && trainingMetrics?.ssim == null && (
                     <div style={{ fontSize: 12, color: 'var(--ink-3)', paddingTop: 6 }}>
-                      No PSNR / SSIM found in log — check the log output for test results.
+                      No PSNR / SSIM found in log — check test interval (checkpoint_test) or log output above.
                     </div>
                   )}
                 </div>

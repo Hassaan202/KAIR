@@ -195,11 +195,11 @@ async def _run_pipeline_classed(job_id: str, req, classes: list):
 
         # Build per-class config (deep-copy the flattened dict)
         cfg = _build_run_pipeline_config(req)
-        cfg["input_hr_dir"] = str(Path(req.input_hr_dir) / cls)
+        cfg["input_hr_dir"] = str(_abs(req.input_hr_dir) / cls)
         if req.input_lr_dir:
-            cfg["input_lr_dir"] = str(Path(req.input_lr_dir) / cls)
-        out_hr = Path(req.output_hr_dir) / cls
-        out_lr = Path(req.output_lr_dir) / cls
+            cfg["input_lr_dir"] = str(_abs(req.input_lr_dir) / cls)
+        out_hr = _abs(req.output_hr_dir) / cls
+        out_lr = _abs(req.output_lr_dir) / cls
         cfg["output_hr_dir"] = str(out_hr)
         cfg["output_lr_dir"] = str(out_lr)
 
@@ -262,11 +262,13 @@ async def _run_pipeline_classed(job_id: str, req, classes: list):
 
     # Optional per-class train/test split
     if not failed_classes and req.train_test_split:
+        out_hr_base = _abs(req.output_hr_dir)
+        out_lr_base = _abs(req.output_lr_dir)
         for cls in classes:
             try:
                 _do_run_pipeline_split(
-                    Path(req.output_hr_dir) / cls,
-                    Path(req.output_lr_dir) / cls,
+                    out_hr_base / cls,
+                    out_lr_base / cls,
                     req.train_ratio,
                 )
             except Exception as exc:
@@ -290,6 +292,7 @@ def _build_pipeline3_config(req: Pipeline3Request) -> dict:
         "HR_IMAGE_PATH": req.hr_image_path,
         "LR_IMAGE_PATH": req.lr_image_path,
         "OUTPUT_DIR": req.output_dir,
+        "CLASS_FILTER": req.class_filter,
         "SUPPORTED_EXTENSIONS": req.supported_extensions,
         "HR_RGB_BANDS": req.hr_rgb_bands,
         "LR_RGB_BANDS": req.lr_rgb_bands,
@@ -329,16 +332,23 @@ def _build_pipeline3_config(req: Pipeline3Request) -> dict:
     }
 
 
+def _abs(path_str: str) -> Path:
+    """Resolve a path against PROJECT_ROOT if it is not already absolute."""
+    p = Path(path_str)
+    return p if p.is_absolute() else PROJECT_ROOT / p
+
+
 async def _run_pipeline3_with_split(job_id: str, req: Pipeline3Request, config_path: Path):
     """Launch pipeline3.py and then optionally do train/test split."""
     await job_manager.launch_job(job_id)
     job = job_manager.get_job(job_id)
     if job and job.status.value == "completed" and req.train_test_split:
         try:
+            test_out = str(_abs(req.test_output_dir)) if req.test_output_dir else ""
             _do_train_test_split(
-                Path(req.output_dir),
+                _abs(req.output_dir),
                 req.train_ratio,
-                req.test_output_dir or "",
+                test_out,
             )
             job.logs.append(
                 f"[gui] Train/test split complete (ratio={req.train_ratio})"
@@ -407,8 +417,8 @@ async def _run_pipeline_with_split(job_id: str, req: RunPipelineRequest, config_
     if job and job.status.value == "completed" and req.train_test_split:
         try:
             _do_run_pipeline_split(
-                Path(req.output_hr_dir),
-                Path(req.output_lr_dir),
+                _abs(req.output_hr_dir),
+                _abs(req.output_lr_dir),
                 req.train_ratio,
             )
             job.logs.append(f"[gui] Train/test split complete (ratio={req.train_ratio})")
@@ -421,7 +431,7 @@ async def start_run_pipeline(req: RunPipelineRequest):
     """Write config JSON and launch preprocessing_pipeline/run_pipeline.py.
     If input_hr_dir contains class subfolders, runs once per class automatically.
     """
-    structure = _detect_class_structure(req.input_hr_dir)
+    structure = _detect_class_structure(str(_abs(req.input_hr_dir)))
 
     if structure["is_classed"] and structure["classes"]:
         # Multi-class mode — one run_pipeline.py call per class subfolder

@@ -10,8 +10,19 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.ndimage import convolve
-from piq import fsim
-import albumentations as A
+try:
+    from piq import fsim as _piq_fsim
+    _PIQ_AVAILABLE = True
+except ImportError:
+    _piq_fsim = None
+    _PIQ_AVAILABLE = False
+
+try:
+    import albumentations as A
+    _ALBUMENTATIONS_AVAILABLE = True
+except ImportError:
+    A = None
+    _ALBUMENTATIONS_AVAILABLE = False
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
@@ -862,23 +873,22 @@ def calculate_fsim(img1, img2, border=0):
     '''
     calculate FSIM using the piq library for high accuracy.
     img1, img2: [0, 255] NumPy arrays
+    Returns 0.0 if piq is not installed.
     '''
+    if not _PIQ_AVAILABLE:
+        return 0.0
+
     if not img1.shape == img2.shape:
         raise ValueError('Input images must have the same dimensions.')
 
-    # 1. Apply border cropping (same as your other functions)
     h, w = img1.shape[:2]
     img1 = img1[border:h - border, border:w - border]
     img2 = img2[border:h - border, border:w - border]
 
-    # 2. Convert NumPy [H, W, C] to PyTorch [Batch, Channel, Height, Width]
-    # We add a batch dimension [1, ...] and move channel to the front
     t1 = torch.from_numpy(img1).permute(2, 0, 1).unsqueeze(0).float()
     t2 = torch.from_numpy(img2).permute(2, 0, 1).unsqueeze(0).float()
 
-    # 3. Calculate FSIM
-    score = fsim(t1, t2, data_range=255.0, chromatic=True)
-
+    score = _piq_fsim(t1, t2, data_range=255.0, chromatic=True)
     return score.item()
 
 

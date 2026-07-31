@@ -4,7 +4,7 @@ const DirBrowser = lazy(() => import('./DirBrowser'))
 function FieldTooltip({ text }) {
   const [show, setShow] = useState(false)
   return (
-    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 5, verticalAlign: 'middle' }}>
+    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 5, verticalAlign: 'middle', zIndex: 1000 }}>
       <span
         onMouseEnter={() => setShow(true)}
         onMouseLeave={() => setShow(false)}
@@ -230,7 +230,7 @@ export function PathField({ label, value, onChange, placeholder, hint, mono, dis
 export function CollapsibleSection({ title, children, defaultOpen = true }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
+    <div className="card" style={{ padding: 0, marginBottom: 16 }}>
       <button type="button" className="acc-head" onClick={() => setOpen((v) => !v)}>
         <span className="acc-title">{title}</span>
         <span style={{ color: 'var(--ink-3)', fontSize: 11 }}>{open ? '▲' : '▼'}</span>

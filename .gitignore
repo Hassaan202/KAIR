@@ -55,6 +55,17 @@ output_patches/
 *_test/
 _previews/
 
+# Downloaded/generated satellite imagery datasets (large binaries)
+testsets/maxar_samples/
+
+# Trained model checkpoints (train logs/options are tracked, weights are not)
+superresolution/*/models/
+
+# PowerPoint files + Office lock files
+*.ppt
+*.pptx
+~$*
+
 # Claude Code
 .claude/settings.local.json
 

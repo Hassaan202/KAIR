@@ -678,6 +678,7 @@ select.text-input {
 
 .acc-head:hover {
   background: var(--surface-2);
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 
 .acc-title {

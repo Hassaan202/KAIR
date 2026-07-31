@@ -245,7 +245,7 @@ function CoregSection({ coreg, setCoreg }) {
           <BoolToggle label="Enable Stage A (ORB)" value={coreg.coreg_a_enabled} onChange={v => set('coreg_a_enabled', v)} />
           {coreg.coreg_a_enabled && (
             <div className="grid-2">
-              <NumberField label="Max features" value={coreg.coreg_a_max_features} onChange={v => set('coreg_a_max_features', v)} min={100} step={500} />
+              <NumberField label="Max features" value={coreg.coreg_a_max_features} onChange={v => set('coreg_a_max_features', v)} min={0} step={500} />
               <NumberField label="Match ratio" value={coreg.coreg_a_match_ratio} onChange={v => set('coreg_a_match_ratio', v)} min={0.5} max={1.0} step={0.05} />
             </div>
           )}
@@ -253,7 +253,7 @@ function CoregSection({ coreg, setCoreg }) {
           <div style={{ marginTop: 14, fontWeight: 600, fontSize: 12, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Stage B — Phase Correlation</div>
           <BoolToggle label="Enable Stage B (Phase)" value={coreg.coreg_b_enabled} onChange={v => set('coreg_b_enabled', v)} />
           {coreg.coreg_b_enabled && (
-            <NumberField label="Upsample factor" value={coreg.coreg_b_upsample_factor} onChange={v => set('coreg_b_upsample_factor', v)} min={1} step={10} />
+            <NumberField label="Upsample factor" value={coreg.coreg_b_upsample_factor} onChange={v => set('coreg_b_upsample_factor', v)} min={0} step={10} />
           )}
 
           <div style={{ marginTop: 14, fontWeight: 600, fontSize: 12, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Radiometric Normalisation</div>
@@ -705,7 +705,11 @@ function parsePatchedMetrics(lines) {
       // Match lines like "  PSNR: 34.1234" or "  ΔPSNR: +1.23"
       const kv = line.match(/[Δ]?(\w+):\s*([+-]?[\d.]+)/)
       if (kv) {
-        const key = kv[1].toLowerCase()
+        // The delta section's log lines are prefixed with a literal "d"
+        // (e.g. "dPSNR: -0.84") -- strip it so keys line up with METRIC_NAMES
+        // ('psnr', not 'dpsnr'), matching the 'sr'/'lr' sections' bare keys.
+        const rawKey = kv[1].toLowerCase()
+        const key = section === 'delta' ? rawKey.replace(/^d/, '') : rawKey
         const val = parseFloat(kv[2])
         if (!isNaN(val)) {
           if (section === 'sr') result.sr[key] = val
@@ -722,6 +726,105 @@ function parsePatchedMetrics(lines) {
   return hasData ? result : null
 }
 
+/* ─── "5-layer" visual assessment (shared by Tab 1 & Tab 2) ───── */
+const VISUAL_REPORT_MARKER_RE = /PREVIEW_READY (\S+) (\S+) (\S+)/
+const VISUAL_REPORT_STAGES = ['grid', 'fft', 'errormap', 'residual']
+const VISUAL_REPORT_STAGE_LABELS = {
+  grid: 'LR / SR / HR', fft: 'FFT spectrum', errormap: 'Error map', residual: 'Residual map',
+}
+const INFERENCE_PREVIEW_STAGES = VISUAL_REPORT_STAGES.map(key => ({ key, label: VISUAL_REPORT_STAGE_LABELS[key] }))
+
+const CLIENT_PSNR_GAIN_THRESHOLD = 1.5
+const CLIENT_SSIM_FLOOR = 0.85
+
+/** Parse every PREVIEW_READY line (not just the latest per stage) into a
+ * per-sample map of {grid, fft, errormap, residual} image URLs. */
+function parseVisualReportSamples(lines, jobId) {
+  const bySample = {}
+  for (const line of lines) {
+    const match = line.match(VISUAL_REPORT_MARKER_RE)
+    if (!match) continue
+    const [, filename, stage, scene] = match
+    if (!VISUAL_REPORT_STAGES.includes(stage)) continue
+    if (!bySample[scene]) bySample[scene] = { scene }
+    bySample[scene][stage] = `/api/inference/preview/${jobId}/${encodeURIComponent(filename)}`
+  }
+  return Object.values(bySample)
+}
+
+function VisualAssessmentGallery({ samples }) {
+  const [lightbox, setLightbox] = useState(null)
+  if (!samples || samples.length === 0) return null
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: 'var(--ink-1)' }}>
+        Visual Assessment — {samples.length} sample patch{samples.length !== 1 ? 'es' : ''}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 12 }}>
+        Layers 3–5 of the QA framework: visual grid, FFT/radial frequency spectrum, error &amp; residual maps.
+      </div>
+      {samples.map(sample => (
+        <div key={sample.scene} style={{ marginBottom: 18, paddingBottom: 14, borderBottom: '1px solid var(--line-2)' }}>
+          <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--ink-2)', marginBottom: 8, wordBreak: 'break-all' }}>
+            {sample.scene}
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {VISUAL_REPORT_STAGES.filter(stage => sample[stage]).map(stage => (
+              <div key={stage} style={{ flex: '1 1 140px', minWidth: 120, cursor: 'pointer' }}
+                onClick={() => setLightbox(sample[stage])}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-3)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  {VISUAL_REPORT_STAGE_LABELS[stage]}
+                </div>
+                <img src={sample[stage]} alt={stage}
+                  style={{ width: '100%', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line-2)', background: 'var(--bg-2)' }}
+                  onError={e => { e.target.style.opacity = 0.3 }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out',
+        }}>
+          <img src={lightbox} alt="enlarged"
+            style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, boxShadow: '0 0 60px rgba(0,0,0,0.8)' }} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Client's stated bar: PSNR gain >= 1.5dB over bicubic AND absolute SR SSIM >= 0.85. */
+function PassFailBadge({ metrics }) {
+  const delta = metrics?.delta
+  const sr = metrics?.sr
+  const psnrGain = delta?.psnr
+  const srSsim = sr?.ssim
+  if (typeof psnrGain !== 'number' || typeof srSsim !== 'number') return null
+
+  const psnrPass = psnrGain >= CLIENT_PSNR_GAIN_THRESHOLD
+  const ssimPass = srSsim >= CLIENT_SSIM_FLOOR
+  const overallPass = psnrPass && ssimPass
+
+  return (
+    <div style={{
+      marginTop: 16, padding: '10px 14px', borderRadius: 'var(--radius-sm)',
+      border: `1px solid ${overallPass ? 'var(--ok)' : 'var(--bad)'}`,
+      background: overallPass ? 'rgba(60, 180, 100, 0.08)' : 'rgba(220, 70, 70, 0.08)',
+    }}>
+      <div style={{ fontWeight: 700, fontSize: 13, color: overallPass ? 'var(--ok)' : 'var(--bad)', marginBottom: 4 }}>
+        {overallPass ? '✓ PASS' : '✗ FAIL'} — client acceptance bar
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--ink-2)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        <span>{psnrPass ? '✓' : '✗'} PSNR gain ≥ {CLIENT_PSNR_GAIN_THRESHOLD} dB (actual: {psnrGain >= 0 ? '+' : ''}{psnrGain.toFixed(2)} dB)</span>
+        <span>{ssimPass ? '✓' : '✗'} SR SSIM ≥ {CLIENT_SSIM_FLOOR} (actual: {srSsim.toFixed(3)})</span>
+      </div>
+    </div>
+  )
+}
+
 function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
   const [modelSource, setModelSource] = useState('auto')
   const [selectedTask, setSelectedTask] = useState('')
@@ -732,9 +835,11 @@ function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
   const [inferConfig, setInferConfig] = useState({
     lr_dir: '', hr_dir: '', sr_dir: 'testsets/output/sr',
     tile: '', tile_overlap: 32, overwrite_sr: true, log_dir: 'testsets/output',
+    visual_report_enabled: true, visual_report_samples: 10, visual_report_seed: 23,
   })
   const [jobDone, setJobDone] = useState(false)
   const [patchedMetrics, setPatchedMetrics] = useState(null)
+  const [visualSamples, setVisualSamples] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const allLinesRef = useRef([])
@@ -756,7 +861,7 @@ function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setError(''); setLoading(true)
-    setJobId(null); setJobDone(false); setPatchedMetrics(null)
+    setJobId(null); setJobDone(false); setPatchedMetrics(null); setVisualSamples([])
     allLinesRef.current = []
     try {
       const modelPath = modelSource === 'auto' ? (latestInfo?.model_path || '') : customModelPath
@@ -765,6 +870,9 @@ function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
         sr_dir: inferConfig.sr_dir, tile: inferConfig.tile ? parseInt(inferConfig.tile) : null,
         tile_overlap: inferConfig.tile_overlap, overwrite_sr: inferConfig.overwrite_sr,
         log_dir: inferConfig.log_dir, model_config: modelConfig,
+        visual_report_enabled: inferConfig.visual_report_enabled,
+        visual_report_samples: inferConfig.visual_report_samples,
+        visual_report_seed: inferConfig.visual_report_seed,
       }
       const r = await startInference(payload)
       setJobId(r.data.job_id)
@@ -783,6 +891,7 @@ function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
     setJobDone(true)
     const parsed = parsePatchedMetrics(allLinesRef.current)
     if (parsed) setPatchedMetrics(parsed)
+    if (jobId) setVisualSamples(parseVisualReportSamples(allLinesRef.current, jobId))
   }
 
   return (
@@ -817,6 +926,20 @@ function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
             <BoolToggle label="Overwrite existing SR images" value={inferConfig.overwrite_sr}
               onChange={v => setIC('overwrite_sr', v)} />
           </CollapsibleSection>
+          <CollapsibleSection title="Visual Assessment (5-layer QA)" defaultOpen>
+            <BoolToggle label="Generate visual grids, FFT spectrum, error &amp; residual maps"
+              value={inferConfig.visual_report_enabled}
+              onChange={v => setIC('visual_report_enabled', v)}
+              tooltip="Adds the client's remaining QA layers (visual grid, FFT/radial spectrum, error map, residual map) for a random sample of patches, on top of the metrics table below." />
+            {inferConfig.visual_report_enabled && (
+              <div className="grid-2">
+                <NumberField label="Sample patches" value={inferConfig.visual_report_samples}
+                  onChange={v => setIC('visual_report_samples', v)} min={1} max={50} step={1} />
+                <NumberField label="Random seed" value={inferConfig.visual_report_seed}
+                  onChange={v => setIC('visual_report_seed', v)} min={0} step={1} />
+              </div>
+            )}
+          </CollapsibleSection>
           {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
           <button type="submit" className="btn btn-primary full-width"
             disabled={loading || (modelSource === 'auto' && !selectedTask)}>
@@ -846,12 +969,15 @@ function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
             onStop={() => stopInference(jobId).catch(() => { })}
             onLine={handleLogLine}
             onComplete={handleComplete}
+            previewStages={INFERENCE_PREVIEW_STAGES}
           />
         )}
         {jobDone && patchedMetrics && (
           <div className="card" style={{ marginTop: 16 }}>
             <div className="card-title">Average Metrics Summary</div>
             <MetricsTable metrics={patchedMetrics} />
+            <PassFailBadge metrics={patchedMetrics} />
+            <VisualAssessmentGallery samples={visualSamples} />
           </div>
         )}
       </div>
@@ -872,6 +998,7 @@ function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
     lr_path: '', hr_path: '', lr_bands: [3, 2, 1], hr_bands: [1, 2, 3],
     output_dir: 'testsets/raw_inference_output', patch_size: 128,
     overlap: 32, scale_factor: 2,
+    visual_report_enabled: true, visual_report_samples: 10, visual_report_seed: 23,
   })
   const [jobDone, setJobDone] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -880,7 +1007,9 @@ function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
   const [metricsError, setMetricsError] = useState('')
   const [lrMeta, setLrMeta] = useState(null)
   const [hrMeta, setHrMeta] = useState(null)
+  const [visualSamples, setVisualSamples] = useState([])
   const jobIdRef = useRef(null)
+  const allLinesRef = useRef([])
 
   const setMC = (path, value) => setModelConfig(prev => deepSet(prev, path, value))
   const setCfg = (key, value) => setConfig(prev => ({ ...prev, [key]: value }))
@@ -929,7 +1058,8 @@ function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setError(''); setLoading(true)
-    setJobId(null); setJobDone(false); setMetrics(null); setMetricsError('')
+    setJobId(null); setJobDone(false); setMetrics(null); setMetricsError(''); setVisualSamples([])
+    allLinesRef.current = []
     try {
       const modelPath = modelSource === 'auto' ? (latestInfo?.model_path || '') : customModelPath
       const payload = { ...config, model_path: modelPath, model_network_config: modelConfig, coreg }
@@ -939,6 +1069,11 @@ function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
     } catch (err) {
       setError(err.response?.data?.detail || String(err))
     } finally { setLoading(false) }
+  }
+
+  // Called by LogConsole with every new line so we can parse PREVIEW_READY markers on completion
+  const handleLogLine = (line) => {
+    allLinesRef.current.push(line)
   }
 
   const resultImages = jobDone && jobId ? [
@@ -962,10 +1097,10 @@ function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
 
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title">Input Images</div>
-            <PathField label="LR raw image path" mode="files" extensions=".tif,.tiff,.jp2,.img"
+            <PathField label="LR raw image path" mode="files" extensions=".tif,.tiff,.jp2,.img,.png,.jpg,.jpeg,.bmp"
               value={config.lr_path} onChange={v => setCfg('lr_path', v)} placeholder="/path/to/lr.tif" mono />
             <MetaPill meta={lrMeta} />
-            <PathField label="HR raw image path" mode="files" extensions=".tif,.tiff,.jp2,.img"
+            <PathField label="HR raw image path" mode="files" extensions=".tif,.tiff,.jp2,.img,.png,.jpg,.jpeg,.bmp"
               hint="ground truth"
               value={config.hr_path} onChange={v => setCfg('hr_path', v)} placeholder="/path/to/hr.tif" mono />
             <MetaPill meta={hrMeta} />
@@ -995,6 +1130,21 @@ function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
               onChange={v => setCfg('scale_factor', v)} min={1} max={8} />
           </div>
 
+          <CollapsibleSection title="Visual Assessment (5-layer QA)" defaultOpen>
+            <BoolToggle label="Generate visual grids, FFT spectrum, error &amp; residual maps"
+              value={config.visual_report_enabled}
+              onChange={v => setCfg('visual_report_enabled', v)}
+              tooltip="Adds the client's remaining QA layers (visual grid, FFT/radial spectrum, error map, residual map) for a random sample of patch-sized crops within the stitched scene, on top of the metrics table below." />
+            {config.visual_report_enabled && (
+              <div className="grid-2">
+                <NumberField label="Sample patches" value={config.visual_report_samples}
+                  onChange={v => setCfg('visual_report_samples', v)} min={1} max={50} step={1} />
+                <NumberField label="Random seed" value={config.visual_report_seed}
+                  onChange={v => setCfg('visual_report_seed', v)} min={0} step={1} />
+              </div>
+            )}
+          </CollapsibleSection>
+
           <CoregSection coreg={coreg} setCoreg={setCoreg} />
 
           {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
@@ -1013,10 +1163,13 @@ function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
             domain="inference"
             jobId={jobId}
             onStop={() => { }}
+            onLine={handleLogLine}
             onComplete={() => {
               setJobDone(true)
               fetchMetrics(jobIdRef.current)
+              setVisualSamples(parseVisualReportSamples(allLinesRef.current, jobIdRef.current))
             }}
+            previewStages={INFERENCE_PREVIEW_STAGES}
           />
         )}
         {jobDone && (
@@ -1039,6 +1192,8 @@ function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
               jobId={jobId} nBands={config.lr_bands.length}
               lrBands={config.lr_bands} hrBands={config.hr_bands} paired />
             <MetricsTable metrics={metrics} />
+            <PassFailBadge metrics={metrics} />
+            <VisualAssessmentGallery samples={visualSamples} />
             <PerBandMetricsTable perBand={metrics?.per_band} lrBands={config.lr_bands} />
             {!metrics && !metricsError && (
               <div style={{ marginTop: 16, fontSize: 12, color: 'var(--ink-3)' }}>
@@ -1154,7 +1309,7 @@ function LROnlyTab({ tasks, optionsFiles, jobId, setJobId }) {
           />
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title">Input Image</div>
-            <PathField label="LR raw image path" mode="files" extensions=".tif,.tiff,.jp2,.img"
+            <PathField label="LR raw image path" mode="files" extensions=".tif,.tiff,.jp2,.img,.png,.jpg,.jpeg,.bmp"
               value={config.lr_path} onChange={v => setCfg('lr_path', v)} placeholder="/path/to/image.tif" mono />
             <MetaPill meta={lrMeta} />
             {lrMeta ? (

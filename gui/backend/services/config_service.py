@@ -135,42 +135,79 @@ def _find_options_file(options_dir: Path) -> Optional[Path]:
     return None
 
 
+def _parse_log_metrics(log_path: Path) -> Dict[str, Any]:
+    """Parse a train.log for the best PSNR and SSIM seen across all checkpoints."""
+    if not log_path.exists():
+        return {}
+    try:
+        with open(log_path, encoding="utf-8", errors="replace") as f:
+            content = f.read()
+        best_psnr: Optional[float] = None
+        best_ssim: Optional[float] = None
+        for line in content.splitlines():
+            pm = re.search(r"Average PSNR:\s*([0-9.]+)", line)
+            if pm:
+                v = float(pm.group(1))
+                if best_psnr is None or v > best_psnr:
+                    best_psnr = v
+            sm = re.search(r"\bSSIM:\s*([0-9.]+)", line)
+            if sm:
+                v = float(sm.group(1))
+                if best_ssim is None or v > best_ssim:
+                    best_ssim = v
+        return {"best_psnr": best_psnr, "best_ssim": best_ssim}
+    except Exception:
+        return {}
+
+
 def list_training_runs() -> List[Dict[str, Any]]:
     """
     Scan superresolution/ for task directories and return metadata about each.
+    Sorted by directory modification time (most recent first).
     """
     runs = []
     if not SUPERRESOLUTION_DIR.is_dir():
         return runs
 
-    for task_dir in sorted(SUPERRESOLUTION_DIR.iterdir()):
+    for task_dir in SUPERRESOLUTION_DIR.iterdir():
         if not task_dir.is_dir():
             continue
 
         models_dir = task_dir / "models"
-        log_dir = task_dir / "log"
+        log_path = task_dir / "log" / "train.log"
         options_dir = task_dir / "options"
 
         latest_iter, latest_model = _find_latest_checkpoint(models_dir) if models_dir.is_dir() else (None, None)
 
-        # Try to get config type (gan vs plain)
         config_type = "unknown"
+        scale: Optional[int] = None
+        n_channels: Optional[int] = None
         train_config_path = _find_options_file(options_dir)
         if train_config_path:
             try:
                 cfg = load_kair_json(train_config_path)
                 config_type = cfg.get("model", "plain")
+                scale = cfg.get("scale") or cfg.get("netG", {}).get("upscale")
+                n_channels = cfg.get("n_channels") or cfg.get("netG", {}).get("in_chans")
             except Exception:
                 pass
+
+        log_metrics = _parse_log_metrics(log_path)
 
         runs.append({
             "task_name": task_dir.name,
             "latest_iteration": latest_iter,
             "latest_model_path": latest_model,
             "config_type": config_type,
-            "has_log": (log_dir / "train.log").exists(),
+            "has_log": log_path.exists(),
+            "scale": scale,
+            "n_channels": n_channels,
+            "best_psnr": log_metrics.get("best_psnr"),
+            "best_ssim": log_metrics.get("best_ssim"),
+            "mtime": task_dir.stat().st_mtime,
         })
 
+    runs.sort(key=lambda r: r["mtime"], reverse=True)
     return runs
 
 

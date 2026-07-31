@@ -273,16 +273,25 @@ def _read_decimated_overviews(
     dst_transform = hr_profile["transform"] * Affine.scale(hr_width / out_w, hr_height / out_h)
     lr_dst = np.zeros((3, out_h, out_w), dtype=np.uint16)
     with rasterio.open(lr_path) as lr_src:
-        for band_idx, band_number in enumerate(lr_bands):
-            reproject(
-                source=rasterio.band(lr_src, band_number),
-                destination=lr_dst[band_idx],
-                src_transform=lr_src.transform,
-                src_crs=lr_src.crs,
-                dst_transform=dst_transform,
-                dst_crs=hr_profile["crs"],
-                resampling=Resampling.cubic,
-            )
+        has_crs = (lr_src.crs is not None) and (hr_profile.get("crs") is not None)
+        if has_crs:
+            for band_idx, band_number in enumerate(lr_bands):
+                reproject(
+                    source=rasterio.band(lr_src, band_number),
+                    destination=lr_dst[band_idx],
+                    src_transform=lr_src.transform,
+                    src_crs=lr_src.crs,
+                    dst_transform=dst_transform,
+                    dst_crs=hr_profile["crs"],
+                    resampling=Resampling.cubic,
+                )
+        else:
+            # No CRS (plain JPG/PNG): read each band and resize to overview dims
+            for band_idx, band_number in enumerate(lr_bands):
+                raw = lr_src.read(band_number)
+                resized = cv2.resize(raw.astype(np.float32), (out_w, out_h),
+                                     interpolation=cv2.INTER_CUBIC)
+                lr_dst[band_idx] = np.clip(resized, 0, 65535).astype(np.uint16)
     lr_overview = np.clip(np.transpose(lr_dst, (1, 2, 0)), 0, 32767).astype(np.uint16)
 
     logging.info(
@@ -577,16 +586,36 @@ def _read_lr_window_to_hr_grid(
     dst_transform = window_transform(window, hr_profile["transform"])
 
     lr_dst = np.zeros((3, pad_h, pad_w), dtype=np.uint16)
-    for band_idx, band_number in enumerate(lr_bands):
-        reproject(
-            source=rasterio.band(lr_src, band_number),
-            destination=lr_dst[band_idx],
-            src_transform=lr_src.transform,
-            src_crs=lr_src.crs,
-            dst_transform=dst_transform,
-            dst_crs=hr_profile["crs"],
-            resampling=Resampling.cubic,
+    has_crs = (lr_src.crs is not None) and (hr_profile.get("crs") is not None)
+    if has_crs:
+        for band_idx, band_number in enumerate(lr_bands):
+            reproject(
+                source=rasterio.band(lr_src, band_number),
+                destination=lr_dst[band_idx],
+                src_transform=lr_src.transform,
+                src_crs=lr_src.crs,
+                dst_transform=dst_transform,
+                dst_crs=hr_profile["crs"],
+                resampling=Resampling.cubic,
+            )
+    else:
+        # No CRS (plain JPG/PNG): map HR window back to LR coords by scale
+        scale_x = hr_profile["width"] / lr_src.width
+        scale_y = hr_profile["height"] / lr_src.height
+        lr_window = Window(
+            col_off=pad_col / scale_x,
+            row_off=pad_row / scale_y,
+            width=pad_w / scale_x,
+            height=pad_h / scale_y,
         )
+        for band_idx, band_number in enumerate(lr_bands):
+            raw = lr_src.read(
+                band_number,
+                window=lr_window,
+                out_shape=(pad_h, pad_w),
+                resampling=Resampling.cubic,
+            )
+            lr_dst[band_idx] = np.clip(raw, 0, 65535).astype(np.uint16)
     lr_reprojected = np.clip(np.transpose(lr_dst, (1, 2, 0)), 0, 32767).astype(np.uint16)
 
     # Translate residual_homography (full-scene HR coords) into this padded
@@ -1703,13 +1732,39 @@ def save_patch_contact_sheet(
 # MODULE 7 — WORK-ITEM DISCOVERY  (single file OR directory, paired/unpaired)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _discover_images(dir_path: Path, extensions: List[str]) -> Dict[str, Path]:
-    """Return {stem: path} for every file in dir_path matching extensions."""
+def _discover_images(
+    dir_path: Path,
+    extensions: List[str],
+    class_filter: Optional[List[str]] = None,
+) -> Dict[str, Path]:
+    """Return {key: path} for matching image files.
+
+    Flat mode: images directly in dir_path → key = stem (original behaviour).
+    Class-folder mode: if no images exist at top level but subdirectories do,
+    descend one level and use 'subfolder__stem' as the key.
+    class_filter restricts which subfolders are included (empty/None = all).
+    """
     exts = {e.lower() for e in extensions}
     out: Dict[str, Path] = {}
+
+    # Try flat mode first (preserves original behaviour for non-classed datasets)
     for p in sorted(dir_path.iterdir()):
         if p.is_file() and p.suffix.lower() in exts:
             out[p.stem] = p
+    if out:
+        return out
+
+    # Class-folder mode: descend one level into subdirectories.
+    # Key uses "__" separator so the name is safe as a flat filename prefix.
+    for sub in sorted(dir_path.iterdir()):
+        if not sub.is_dir():
+            continue
+        if class_filter and sub.name not in class_filter:
+            continue
+        for p in sorted(sub.iterdir()):
+            if p.is_file() and p.suffix.lower() in exts:
+                out[f"{sub.name}__{p.stem}"] = p
+
     return out
 
 
@@ -1729,6 +1784,7 @@ def resolve_work_items(cfg: dict) -> List[dict]:
 
     hr_is_dir = hr_path is not None and hr_path.is_dir()
     lr_is_dir = lr_path is not None and lr_path.is_dir()
+    class_filter: List[str] = cfg.get("CLASS_FILTER") or []
 
     if hr_path is None and lr_path is None:
         raise ValueError("At least one of HR_IMAGE_PATH or LR_IMAGE_PATH must be set.")
@@ -1748,14 +1804,18 @@ def resolve_work_items(cfg: dict) -> List[dict]:
                 "is not supported."
             )
 
-        hr_index = _discover_images(hr_path, extensions) if hr_is_dir else {}
-        lr_index = _discover_images(lr_path, extensions) if lr_is_dir else {}
+        hr_index = _discover_images(hr_path, extensions, class_filter) if hr_is_dir else {}
+        lr_index = _discover_images(lr_path, extensions, class_filter) if lr_is_dir else {}
 
         all_names = sorted(set(hr_index) | set(lr_index))
         if not all_names:
+            base = hr_path if hr_is_dir else lr_path
+            hint = (
+                f" (class filter active: {class_filter})" if class_filter
+                else " Check that the directory contains image files or class subfolders with images."
+            )
             raise RuntimeError(
-                f"No images with extensions {extensions} found in "
-                f"{hr_path if hr_is_dir else lr_path}."
+                f"No images with extensions {extensions} found in {base}.{hint}"
             )
 
         items = [

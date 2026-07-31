@@ -81,12 +81,31 @@ def _resolve_path(path: str, root: str) -> str:
 # ===================================================================
 
 def _discover_images(input_dir: str, extensions: list) -> list:
-    """Return a sorted list of absolute image paths in *input_dir*."""
+    """Return a sorted list of absolute image paths.
+
+    Handles three cases automatically:
+    1. input_dir is a single image file  → returns [input_dir]
+    2. input_dir is a flat directory     → returns all matching files in that dir
+    3. input_dir has class subfolders    → flat mode finds nothing; caller (backend)
+       splits per-class before calling this function, so each call is case 2.
+    """
     extensions = {e.lower() for e in extensions}
+    input_path = os.path.abspath(input_dir)
+
+    # Case 1: single file
+    if os.path.isfile(input_path):
+        ext = os.path.splitext(input_path)[1].lower()
+        return [input_path] if ext in extensions else []
+
+    if not os.path.isdir(input_path):
+        return []
+
+    # Case 2: flat directory
     paths = []
-    for fname in sorted(os.listdir(input_dir)):
-        if os.path.splitext(fname)[1].lower() in extensions:
-            paths.append(os.path.join(input_dir, fname))
+    for fname in sorted(os.listdir(input_path)):
+        fpath = os.path.join(input_path, fname)
+        if os.path.isfile(fpath) and os.path.splitext(fname)[1].lower() in extensions:
+            paths.append(fpath)
     return paths
 
 
@@ -420,7 +439,7 @@ def main():
         # HR-only mode: degrade HR to generate LR
         image_pairs = [(hr_path, None) for hr_path in hr_image_paths]
 
-        print(f"  Mode             : hr_only (preprocess HR, then degrade→LR)")
+        print(f"  Mode             : hr_only (preprocess HR, then degrade->LR)")
         print(f"  Degradation type : {cfg['degradation_type']}")
         print(f"  Scale factor     : x{cfg['scale']}")
         print(f"  Input HR dir     : {input_hr_dir}")

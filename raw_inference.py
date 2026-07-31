@@ -53,6 +53,7 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from utils import utils_image as util
+from utils import utils_visual_report as vrep
 
 # ---------------------------------------------------------------------------
 # Optional rasterio -- required only for GeoTIFF / JP2 inputs
@@ -887,6 +888,35 @@ def run_paired_inference(cfg: dict) -> None:
     logging.info("Delta:       " + "  ".join(
         f"d{k.upper()} {d_m[k]:+.4f}" + ("(down=better)" if k in LOWER_IS_BETTER else "(up=better)")
         for k in METRIC_NAMES))
+
+    # Step 4b: Optional "5-layer" visual assessment (visual grids, FFT spectrum,
+    # error/residual maps) on a random sample of patch-sized crops within the
+    # stitched scene. Off by default -- configs that predate this option
+    # (every existing caller) behave exactly as before.
+    if bool(cfg.get("visual_report_enabled", False)):
+        try:
+            n_samples = int(cfg.get("visual_report_samples", 10))
+            seed      = int(cfg.get("visual_report_seed", 23))
+            report_patch = min(256, hr_display.shape[0], hr_display.shape[1])
+            boxes = vrep.sample_patch_boxes(hr_display.shape[0], hr_display.shape[1], report_patch, n_samples, seed)
+            logging.info("Visual assessment enabled: %d sample patch(es), seed=%d", len(boxes), seed)
+            preview_dir = output_dir / "_previews"
+            lr_up_bgr = cv2.cvtColor(
+                cv2.resize(lr_scaled, (hr_display.shape[1], hr_display.shape[0]), interpolation=cv2.INTER_CUBIC),
+                cv2.COLOR_RGB2BGR,
+            )
+            sr_bgr_full = cv2.cvtColor(sr_img, cv2.COLOR_RGB2BGR)
+            hr_bgr_full = cv2.cvtColor(hr_display, cv2.COLOR_RGB2BGR)
+            for i, (r, c) in enumerate(boxes):
+                name = f"sample_{i:02d}_r{r}_c{c}"
+                vrep.generate_sample_report(
+                    lr_up_bgr[r:r + report_patch, c:c + report_patch],
+                    sr_bgr_full[r:r + report_patch, c:c + report_patch],
+                    hr_bgr_full[r:r + report_patch, c:c + report_patch],
+                    preview_dir, name,
+                )
+        except Exception as exc:
+            logging.warning("Visual assessment step failed (non-fatal): %s", exc)
 
     # Step 5: Save
     save_display_png(lr_scaled,  output_dir / "lr_display.png")
